@@ -28,13 +28,30 @@
   --danger:#8b1a1a;       /* structural only (borders) — as text this measured ~1.9:1, see .slot.dead */
   --line:#3a3531;
 
-  /* quality borders (§15.3) */
+  /* quality borders (§15.3) — structural only, NOT for text. Measured
+     against --bg-raised (item cards' background): common 3.13, magic 3.57,
+     legendary 3.70, set 4.23, unique 2.34 — all fail AA (4.5:1); rare
+     6.62 passes but is the exception, not the rule. See --q-*-text below,
+     same split as --crimson/--crimson-text. */
   --q-common:#7a736a;
   --q-magic:#4a7ec8;
   --q-rare:#d4a843;
   --q-legendary:#c8641e;
   --q-set:#3f9c4a;
   --q-unique:#8b2fc9;
+  /* §16/§17 readability pass — the readable variant of each quality colour,
+     for item-name text (item cards) and the chronicle's unique-drop line.
+     Lightened toward the same hue rather than desaturated, so the tier is
+     still instantly recognisable at a glance. Measured on bg/bg-panel/
+     bg-raised respectively (worst case always bg-raised, item cards' bg):
+     common 7.71/7.02/6.33, magic 8.39/7.64/6.89, rare 9.65/8.79/7.93,
+     legendary 7.47/6.80/6.14, set 8.16/7.43/6.70, unique 5.98/5.45/4.91 —
+     all clear AA (4.5:1) on all three with margin. */
+  --q-common-text:#b3a99c;
+  --q-magic-text:#7fb4ff;
+  --q-rare-text:#e3b95c;
+  --q-legendary-text:#f0904a;
+  --q-set-text:#5fc46e;
   --q-unique-text:#bb7ae6; /* §16 readability pass — .log.unique .m text; base --q-unique measured only
                                2.0-2.6:1 as text. Lightened purple clears 4.5:1 on all three backgrounds. */
   --upgrade:#4db85a;       /* §16 readability pass (3) — gear-compare "net upgrade" green. Measured
@@ -162,6 +179,15 @@ h3.sub.collapsible .car{font-size:11px;color:var(--parchment-dim)}
 }
 .stub .ph{color:var(--crimson-text);font-family:var(--serif);letter-spacing:.12em;
   font-size:11px;text-transform:uppercase;display:block;margin-bottom:6px}
+/* §17 — gear card rework: item cards (itemCard/marketItemCardHtml) read as
+   a definite quality frame, not a faint dashed hint. Overrides .stub's
+   dashed 1px with a solid 2px border in the quality colour (still set
+   per-card via inline border-color, --q-*); the item-name text inside gets
+   its own readable --q-*-text colour (see itemCardInner/marketItemCardHtml)
+   since the saturated --q-* border colours fail AA as text (see the --q-*
+   comment). Empty equipped slots keep the plain .stub dashed border — only
+   cards WITH an item get this class. */
+.item-card{border-style:solid;border-width:2px}
 
 /* ---------- chronicle (§15.5) ---------- */
 .chronicle{
@@ -1566,72 +1592,112 @@ function facilityTierCost(key, tier){
    ledger" reads S.stats.uniquesFound, already scaffolded in newState()
    since Phase 1 and populated by Phase 11's drop table.
    ================================================================== */
+/* §17 4a — `req` is a plain-language statement of what the achievement
+   actually requires, shown next to the flavor line and the live cur/target
+   numbers (see achievementReqText/achievementRowHtml). `{target}` is
+   substituted with the achievement's own `target` field at render time —
+   the NUMBER is never duplicated by hand, so a target changed here can't
+   drift out of sync with its own requirement text the way a fully
+   hand-written sentence (with the number baked in) could.
+   §17 4b — `checklist:true` marks an achievement whose requirement is a
+   LIST (defeat/collect all N named things), rendered as a collapsible
+   found/missing-by-name breakdown — see achievementChecklistFor. */
 const ACHIEVEMENTS = [
   // --- §4.1/§12 required, unlock-bearing -----------------------------
   {id:"first_loss", name:"First Loss", desc:"Someone falls. It was always going to happen eventually.",
+    req:"Suffer a death, on any character.",
     target:1, progress:(S)=>S.stats.deathsTotal, renown:200, classKey:"necromancer"},
   {id:"long_road", name:"The Long Road", desc:"A hundred runs out and back. The road doesn't get shorter, you just stop noticing.",
+    req:"Complete {target} zone runs across the clan.",
     target:100, progress:(S)=>S.stats.zoneRunsTotal, renown:300, classKey:"monk"},
   {id:"crown_of_ash", name:"Crown of Ash", desc:"The crown comes off. It was always empty.",
+    req:"Defeat the Act IV boss, Halric.",
     target:1, progress:(S)=>(S.stats.actBossKillsEver.a4 ? 1 : 0), renown:400, classKey:"witchdoctor"},
 
   // --- §12 sample table, verbatim conditions/renown -------------------
   {id:"emberhold_stands", name:"Emberhold Stands", desc:"The chapel door is shut. Act I is done.",
+    req:"Clear Act I, on any difficulty.",
     target:1, progress:(S)=>(Object.values(S.actsCleared).some(a => a.includes(1)) ? 1 : 0), renown:100},
   {id:"wake_the_wake", name:"Wake the Wake", desc:"Nax'Ureth is scattered. The Tear is shut, for now.",
+    req:"Clear Act V on Normal difficulty.",
     target:1, progress:(S)=>((S.actsCleared.normal || []).includes(5) ? 1 : 0), renown:500},
   {id:"descent", name:"Descent", desc:"Nightmare opens. It was always going to get worse before it got better.",
+    req:"Unlock Nightmare difficulty.",
     target:1, progress:(S)=>(S.stats.nightmareUnlocked ? 1 : 0), renown:400},   // Phase 10 seam
   {id:"beyond_reckoning", name:"Beyond Reckoning", desc:"Inferno opens. There is nowhere left to be careful.",
+    req:"Unlock Inferno difficulty.",
     target:1, progress:(S)=>(S.stats.infernoUnlocked ? 1 : 0), renown:800},     // Phase 10 seam
   {id:"ninety_nine", name:"Ninety-Nine", desc:"As far as a person can go and still be called one.",
+    req:"Reach level 99 with any character.",
     target:1, progress:(S)=>(S.characters.some(c => c.level >= 99) ? 1 : 0), renown:1000},
   {id:"the_full_ledger", name:"The Full Ledger", desc:"Every unique thing this war ever produced, accounted for.",
+    req:"Find all {target} unique items across the clan.", checklist:true,
     target:24, progress:(S)=>Object.keys(S.stats.uniquesFound).length, renown:1000},   // Phase 11 seam
   {id:"threefold", name:"Threefold", desc:"Three of you, all sixty or past it. That's not luck.",
+    req:"Have {target} characters at level 60 or higher, at the same time.",
     target:3, progress:(S)=>S.characters.filter(c => c.level >= 60).length, renown:500},
   {id:"untouched", name:"Untouched", desc:"A run finished clean, on-level, barely marked.",
+    req:"Finish a zone run at on-level Threat with more than 90% HP remaining.",
     target:1, progress:(S)=>(S.achievements.untouched ? 1 : 0), renown:200,
     trigger:(S, c, ctx) => !!(S.achievements.untouched || ctx.untouched)},
   {id:"gravebound", name:"Gravebound", desc:"Fifty deaths. The clan keeps sending people anyway.",
+    req:"Suffer {target} deaths across the clan.",
     target:50, progress:(S)=>S.stats.deathsTotal, renown:150},
   {id:"coffers", name:"Coffers", desc:"A million gold, held at once. Somebody counted twice to be sure.",
+    req:"Hold {target} gold at once.",
     target:1000000, progress:(S)=>S.gold, renown:300},
   {id:"warlord", name:"Warlord", desc:"Every named thing in Inferno, put down at least once.",
+    req:"Defeat every zone boss ({target} total) on Inferno difficulty.", checklist:true,
     target:15, progress:(S)=>Object.keys(S.stats.infernoZoneBossKillsEver).length, renown:800},   // Phase 10 seam
   {id:"six_feet", name:"Six Feet of Vaelmoor", desc:"Five champions retired. The ground remembers all of them.",
+    req:"Retire {target} characters.",
     target:5, progress:(S)=>S.stats.retiredTotal, renown:400},
 
   // --- ~15 designed for this phase, 50-500 Renown per §10.1 -----------
   {id:"coals_still_burn", name:"Coals Still Burn", desc:"The Ashen March is behind you. The burn wasn't the worst of it.",
+    req:"Clear Act II, on any difficulty.",
     target:1, progress:(S)=>(Object.values(S.actsCleared).some(a => a.includes(2)) ? 1 : 0), renown:150},
   {id:"what_the_choir_keeps", name:"What the Choir Keeps", desc:"The Drowned Choir goes quiet. Not stopped. Quiet.",
+    req:"Clear Act III, on any difficulty.",
     target:1, progress:(S)=>(Object.values(S.actsCleared).some(a => a.includes(3)) ? 1 : 0), renown:200},
   {id:"thirty_and_standing", name:"Thirty and Standing", desc:"Level thirty. Old enough to know better and out here anyway.",
+    req:"Reach level 30 with any character.",
     target:1, progress:(S)=>(S.characters.some(c => c.level >= 30) ? 1 : 0), renown:100},
   {id:"sixty_summers", name:"Sixty Summers", desc:"Sixty levels isn't survival anymore. It's a habit.",
+    req:"Reach level 60 with any character.",
     target:1, progress:(S)=>(S.characters.some(c => c.level >= 60) ? 1 : 0), renown:250},
   {id:"first_find", name:"First Find", desc:"Something worth carrying, for once.",
+    req:"Find your first Rare-or-better item.",
     target:1, progress:(S)=>["rare","legendary","set","unique"].reduce((n,q)=>n+(S.stats.itemsFoundByQuality[q]||0),0), renown:50},
   {id:"legendary_standing", name:"Legendary Standing", desc:"Not Common. Not Rare. The real thing.",
+    req:"Find your first Legendary item.",
     target:1, progress:(S)=>(S.stats.itemsFoundByQuality.legendary || 0), renown:100},
   {id:"full_pack", name:"Full Pack", desc:"Nowhere left to put it. Sell something.",
+    req:"Fill a character's inventory to capacity.",
     target:1, progress:(S)=>(S.stats.everFullInventory ? 1 : 0), renown:50},
   {id:"every_name_counted", name:"Every Name Counted", desc:"Fifteen names, all of them answered for.",
+    req:"Defeat every zone boss ({target} total) at least once, across the clan.", checklist:true,
     target:15, progress:(S)=>Object.keys(S.stats.zoneBossKillsEver).length, renown:400},
   {id:"the_second_ledger", name:"The Second Ledger", desc:"Five hundred runs. The count keeps going. So do you.",
+    req:"Complete {target} zone runs across the clan.",
     target:500, progress:(S)=>S.stats.zoneRunsTotal, renown:400},
   {id:"no_one_left_behind", name:"No One Left Behind", desc:"Twenty-five times back from the dark. Nobody stays down.",
+    req:"Revive {target} times, across the clan.",
     target:25, progress:(S)=>(S.stats.revivesTotal || 0), renown:150},
   {id:"spend_it_all", name:"Spend It All", desc:"Half a million gold into the Clan Hall. The walls are a little less black for it.",
+    req:"Spend {target} gold on Clan Hall facilities, lifetime.",
     target:500000, progress:(S)=>(S.stats.hallGoldSpent || 0), renown:300},
   {id:"one_road_walked", name:"One Road, Walked", desc:"One branch, walked all the way to the end.",
+    req:"Unlock a skill-tree capstone (any branch) with any character.",
     target:1, progress:(S)=>(S.characters.some(c => ["A","B","C"].some(br => (c.tree[br][4]||0) >= 1)) ? 1 : 0), renown:200},
   {id:"clean_hands", name:"Clean Hands", desc:"Ten runs, nobody paid for them.",
+    req:"Complete 10 zone runs across the clan without a single death.",
     target:1, progress:(S)=>((S.stats.zoneRunsTotal >= 10 && S.stats.deathsTotal === 0) ? 1 : 0), renown:150},
   {id:"three_at_once", name:"Three at Once", desc:"All three slots filled. The clan sends everyone it has.",
+    req:"Have 3 characters in the clan at the same time.",
     target:1, progress:(S)=>(S.characters.length >= 3 ? 1 : 0), renown:100},
   {id:"still_counting", name:"Still Counting", desc:"Ten thousand Renown. The bell rings for a reason now.",
+    req:"Hold {target} Renown at once.",
     target:10000, progress:(S)=>S.renown, renown:200},
 ];
 console.assert(ACHIEVEMENTS.length >= 28 && ACHIEVEMENTS.length <= 32, "§12 — ~30 achievements");
@@ -1650,6 +1716,8 @@ function allAchievementsWork(){
     if (!ach.target || ach.target <= 0) bad.push(`${ach.id}: missing/invalid target`);
     if (!ach.name || !ach.desc) bad.push(`${ach.id}: missing name/desc`);
     if (!ach.renown && !ach.classKey) bad.push(`${ach.id}: no reward wired`);
+    if (!ach.req) bad.push(`${ach.id}: missing req (§17 4a — explicit requirement text)`);   // §17
+    if (ach.checklist && !achievementChecklistFor(ach)) bad.push(`${ach.id}: checklist:true but no checklist data`);   // §17
   }
   return {count: ACHIEVEMENTS.length, bad, ok: bad.length === 0};
 }
@@ -1791,6 +1859,14 @@ function newCharacter(cls, name){
       restUntil: 1.0,        // 1.0 grants Rested
       onDeath: "resume",     // resume | halt
       lastZoneId: null,      // boss targets revert here after an attempt
+      // §17 — "stop after N runs". limit: 0 = off, else one of 5/10/25/50/
+      // 100 (see loopPolicyPanel). limitDone counts every run that RESOLVES
+      // since the limit was last (re)armed — see Engine.noteRunResolved for
+      // why deaths/aborts count too, not just completions. Reset to 0
+      // whenever the limit is changed (A.setLoopLimit) so re-arming it
+      // actually re-arms it.
+      limit: 0,
+      limitDone: 0,
     },
 
     // Phase 7 — nextRunBonus: {stat, mult} set by T1/T4 capstones, consumed
@@ -1859,7 +1935,12 @@ function newState(){
     // questsOpen — lives on S.ui so it survives a reload.
     ui: {tab:"quests", questsOpen:{},
       charOpen: {difficulty:false, combat:false, economy:false, tree:false},
-      gearOpen: {salvage:false}},
+      gearOpen: {salvage:false},
+      // §17 4b — Achievements checklist toggles (The Full Ledger/Warlord/
+      // Every Name Counted), keyed by achievement id. Same collapsible
+      // pattern as charOpen/gearOpen above, defaulting CLOSED — the Clan
+      // Hall achievements list is already long.
+      achOpen: {}},
     // §13 Phase 10 — The Cinder Market. stock is 6 items (BAL.MARKET_STOCK_SIZE),
     // refreshAt is the ABSOLUTE epoch ms of the next hourly refresh (§2.1 —
     // never a countdown). refreshAt:0 means "never rolled" — refreshMarketIfNeeded
@@ -3391,6 +3472,7 @@ const Engine = {
     const onLevel = !!(info && a.kind === "zone" && c.level >= info.band[0] && c.level <= info.band[1]);
     checkAchievements(c, {untouched: onLevel && hpFracNow > 0.9});
 
+    Engine.noteRunResolved(c, atMs);   // §17 — a completion is a resolved attempt for the run-limit counter
     Engine.toIdle(c, atMs);
   },
   onDeath(c, atMs){
@@ -3426,7 +3508,51 @@ const Engine = {
     // cycles across any gap are bounded by elapsed / reviveCooldownFor(c) —
     // nowhere near BAL.MAX_SIM_STEPS even for a 1-year gap.
     if (c.loop.onDeath === "halt") c.loop.repeat = false;
+    // §17 — a death is a resolved attempt too, and MUST count toward the run
+    // limit even though it isn't a "completion": onDeath:"resume" leaves
+    // repeat on, so a character that keeps dying would otherwise never hit
+    // a limit that only counted wins — the exact runaway this feature
+    // exists to cap. See Engine.noteRunResolved.
+    Engine.noteRunResolved(c, atMs);
     checkAchievements(c, {});   // §12 "first_loss"/"gravebound" — death event
+  },
+  /* §17 — "stop after N runs". Called once per RESOLVED run — a completion
+     (completeRun), a death (onDeath), or a manual early exit (abortRun) —
+     never per tick. Counting completions only would let onDeath:"resume"
+     loop forever on a character that keeps dying before it ever
+     "completes" a run; counting every resolution (win, death, OR abort)
+     is what actually bounds the loop. Mirrors "On death: Halt loop"
+     (loop.repeat = false) so both halt paths are visible the same way —
+     the player sees Repeat flip to Off and can re-arm it (which also
+     resets limitDone — see A.setLoopLimit). Must be called BEFORE
+     Engine.toIdle/the "dead" transition wipes anything this needs (only
+     c.loop and c.activity.ticksDone, for the chronicle line, are read). */
+  noteRunResolved(c, atMs){
+    const loop = c.loop;
+    if (!loop.limit) return;
+    loop.limitDone++;
+    if (loop.limitDone >= loop.limit && loop.repeat){
+      loop.repeat = false;
+      chronicle(c, c.activity.ticksDone, `Run limit reached (${loop.limit}) — loop halted.`, "sys");
+    }
+  },
+  /* §17 — voluntary early exit from a zone run. Same accrual rule as a
+     death (§6.5): payout() first, so everything earned before the abort is
+     kept, THEN toIdle. Unlike completeRun this does NOT touch
+     progressFor(c).zoneClears — an aborted run must not advance the 3-run
+     zone-boss unlock gate, same as a death. Zone runs only: bosses have no
+     abort control (owner call, §7) — refuse here too, not just by hiding
+     the UI button, so a direct call can't bypass that. Still counts toward
+     the run limit (an abort IS a resolved attempt) via noteRunResolved. */
+  abortRun(c, atMs){
+    const a = c.activity;
+    if (a.type !== "run" || a.kind !== "zone") return false;
+    const result = Engine.payout(c, atMs);
+    chronicle(c, a.ticksDone,
+      `${c.name} breaks off the run early. ${fmt(Math.round(result.xp))} XP and ${fmt(Math.round(result.gold))} gold banked.`, "sys");
+    Engine.noteRunResolved(c, atMs);
+    Engine.toIdle(c, atMs);
+    return true;
   },
   /* Flushes activity.accrued into persistent clan/character state. Shared by
      completeRun and onDeath so "kept on death" (§6.5) isn't a special case.
@@ -4379,8 +4505,20 @@ function renderCard(){
     <div class="bar-row">
       <div class="cap" id="activityCap">${activityCaption(c)}</div>
       ${activityBar(c)}
+      ${abortRunButtonHtml(c)}
     </div>
     <div id="recoveryWrap">${recoveryControls(c)}</div>`;
+}
+
+/* §17 — end a zone run early, next to the run progress bar. Zone runs
+   only: zone bosses and act bosses get no abort control at all (owner
+   call, §7) — the button is simply absent for a.kind !== "zone", not
+   just disabled. No confirmation dialog per the brief. */
+function abortRunButtonHtml(c){
+  const a = c.activity;
+  if (a.type !== "run" || a.kind !== "zone") return "";
+  return `<button class="btn" style="margin-top:8px" onclick="A.abortRun()"
+    title="Keeps everything earned so far; does not count as a zone clear">End Run Early</button>`;
 }
 
 // §6.7 — Rested is shown until consumed by the next run, not just while idle.
@@ -4610,11 +4748,23 @@ function loopPolicyPanel(c){
     {v:"resume", l:"Wait out cooldown and resume"},
     {v:"halt",   l:"Halt loop"},
   ].map(o => `<option value="${o.v}" ${loop.onDeath===o.v?"selected":""}>${esc(o.l)}</option>`).join("");
+  // §17 — "stop after N runs". 0 = off; Engine.noteRunResolved halts the
+  // loop the same way onDeath:"halt" does once loop.limitDone reaches this.
+  const limitOpts = [0,5,10,25,50,100].map(v =>
+    `<option value="${v}" ${loop.limit===v?"selected":""}>${v===0?"Off":v}</option>`).join("");
 
   const warn = (loop.restUntil <= loop.autoRestAt && loop.autoRestAt > 0)
     ? `<div class="flavor" style="margin-top:8px;color:var(--crimson-text);font-style:normal">
          Rest-until is at or below the auto-rest trigger — resting will run to 100% instead
          so the loop can't ping-pong.</div>`
+    : "";
+  // §17 — progress readout, only meaningful once a limit is armed. Counts
+  // every RESOLVED run (win, death, or an early-exit abort) — see
+  // Engine.noteRunResolved for why a death must count too.
+  const limitProgress = loop.limit
+    ? `<div class="flavor" style="margin-top:8px;font-style:normal">
+         ${loop.limitDone} / ${loop.limit} runs${(!loop.repeat && loop.limitDone >= loop.limit)
+           ? ` <span style="color:var(--crimson-text)">&middot; limit reached, loop halted</span>` : ""}</div>`
     : "";
 
   return `<h3 class="sub">Loop Policy</h3>
@@ -4645,8 +4795,13 @@ function loopPolicyPanel(c){
           <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">On death</div>
           <select onchange="A.setLoopOnDeath(this.value)">${onDeathOpts}</select>
         </label>
+        <label style="display:block">
+          <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Stop after N runs</div>
+          <select onchange="A.setLoopLimit(this.value)">${limitOpts}</select>
+        </label>
       </div>
       ${warn}
+      ${limitProgress}
     </div>`;
 }
 
@@ -4797,9 +4952,14 @@ function respecButtonHtml(c){
 // difficulty/skill-point count); `bodyFn` is only invoked when open, so
 // closed sections don't pay for the html they're not showing.
 function sectionOpen(group, key){ return !!(S.ui[group] && S.ui[group][key]); }
-function collapsibleSection(group, key, titleHtml, bodyFn){
+// §17 — optional 5th `extraStyle` param lets a caller override h3.sub's
+// 20px-top/8px-bottom margin for a section nested somewhere tighter (e.g.
+// the achievement checklist toggle, §17 4b) without touching the other,
+// already-shipped call sites (Character tab, Gear tab), which simply don't
+// pass it and get the same output as before.
+function collapsibleSection(group, key, titleHtml, bodyFn, extraStyle){
   const open = sectionOpen(group, key);
-  return `<h3 class="sub collapsible" onclick="A.toggleUiSection('${group}','${key}')">
+  return `<h3 class="sub collapsible" style="${extraStyle || ""}" onclick="A.toggleUiSection('${group}','${key}')">
       <span>${titleHtml}</span><span class="car">${open ? "▾" : "▸"}</span>
     </h3>
     ${open ? bodyFn() : ""}`;
@@ -4966,7 +5126,7 @@ function itemCardInner(c, it, mode){
       <button class="btn" onclick="A.vaultItem('${it.id}')">Send to Vault</button>`;
   }
   return `
-    <div style="font-family:var(--serif);letter-spacing:.06em;color:var(--parchment)">${esc(it.name)}</div>
+    <div style="font-family:var(--serif);letter-spacing:.06em;color:var(--q-${it.quality}-text)">${esc(it.name)}</div>
     <div class="flavor" style="font-style:normal;font-size:12px;margin:4px 0 6px">
       ${q} ${it.slot} &middot; Power ${fmt(it.power)} &middot; Req Lv ${it.req}${overLevel ? ` <span style="color:var(--crimson-text)">(too high)</span>` : ""}
     </div>
@@ -4974,10 +5134,13 @@ function itemCardInner(c, it, mode){
     ${affixTxt ? `<div style="font-size:12px;color:var(--gold);margin-bottom:8px">${esc(affixTxt)}</div>` : ""}
     <div style="display:flex;gap:6px;flex-wrap:wrap">${actions}</div>`;
 }
+// §17 — solid quality-colour border (.item-card, 2px) only on a card that
+// HAS an item; an empty equipped slot keeps .stub's plain dashed line (no
+// quality to frame).
 function itemCard(c, it, mode){
-  const border = it ? `var(--q-${it.quality})` : "var(--line)";
-  return `<div class="stub" style="border-color:${border}">
-    ${it ? itemCardInner(c, it, mode) : `<div class="flavor">Empty</div>`}
+  if (!it) return `<div class="stub"><div class="flavor">Empty</div></div>`;
+  return `<div class="stub item-card" style="border-color:var(--q-${it.quality})">
+    ${itemCardInner(c, it, mode)}
   </div>`;
 }
 /* §9.7/§11 — auto-salvage filter config. Each of the 3 rules is gated
@@ -5058,8 +5221,8 @@ function marketItemCardHtml(it){
   const afford = !!(c && S.gold >= it.buyPrice);
   const disabled = !c || !roomy || !afford;
   const title = !c ? "No character selected" : !roomy ? "Inventory full" : !afford ? "Not enough gold" : "Buy";
-  return `<div class="stub" style="border-color:${border}">
-    <div style="font-family:var(--serif);letter-spacing:.06em;color:var(--parchment)">${esc(it.name)}</div>
+  return `<div class="stub item-card" style="border-color:${border}">
+    <div style="font-family:var(--serif);letter-spacing:.06em;color:var(--q-${it.quality}-text)">${esc(it.name)}</div>
     <div class="flavor" style="font-style:normal;font-size:12px;margin:4px 0 6px">
       ${qualityLabel(it)} ${it.slot} &middot; Power ${fmt(it.power)} &middot; Req Lv ${it.req}
     </div>
@@ -5229,9 +5392,71 @@ function facilityCardHtml(key){
           title="${afford ? "" : "Not enough gold"}">Upgrade to tier ${tier + 1} &middot; ${fmt(cost)}g</button>`}
   </div>`;
 }
-/* §12 — one achievement row with a progress bar. Done ones read from
-   S.achievements (sticky — see checkAchievements); everything else reads a
-   live progress(S) value, clamped to target for the bar. */
+/* §17 4a — the requirement sentence for one achievement, with its OWN
+   target substituted in for {target} (never a second hand-typed copy of
+   the number — see the ACHIEVEMENTS header comment). */
+function achievementReqText(ach){
+  return (ach.req || "").replace(/\{target\}/g, fmt(ach.target));
+}
+// §17 4b — every zone boss in the game, act order, id+name straight from
+// ACTS (the same data zoneSendButton/bossSendButton already walk) — never
+// a second hand-maintained boss list that could drift from it.
+function allZoneBosses(){
+  const out = [];
+  for (const act of ACTS) for (const z of act.zones) out.push({id: z.boss.id, name: z.boss.name});
+  return out;
+}
+// All 24 uniques, straight from UNIQUES (§9.5) — key matches exactly what
+// Engine.applyTick writes into S.stats.uniquesFound ("class_slot").
+function allUniqueEntries(){
+  const out = [];
+  for (const cls of Object.keys(UNIQUES)){
+    for (const slot of Object.keys(UNIQUES[cls])){
+      out.push({key: cls + "_" + slot, name: UNIQUES[cls][slot].name, owner: `${CLASSES[cls].name} · ${slot}`});
+    }
+  }
+  return out;
+}
+/* §17 4b — checklist DATA for one checklist-flagged achievement: an array
+   of {label, done}, found/defeated entries first so what's still missing
+   is easy to scan past. Returns null for a non-checklist achievement (the
+   `checklist:true` flag on the ACHIEVEMENTS entry is what turns this on —
+   see achievementRowHtml). Identified as checklist-worthy: The Full Ledger
+   (24 uniques), Warlord (15 Inferno zone-boss kills), Every Name Counted
+   (15 zone bosses ever, any difficulty) — every "collect/defeat all N
+   NAMED things" achievement among the 30. */
+function achievementChecklistFor(ach){
+  if (ach.id === "the_full_ledger"){
+    const items = allUniqueEntries().map(u => ({label: `${u.name} (${u.owner})`, done: !!S.stats.uniquesFound[u.key]}));
+    return items.sort((a, b) => (a.done === b.done) ? 0 : (a.done ? -1 : 1));
+  }
+  if (ach.id === "warlord"){
+    const items = allZoneBosses().map(b => ({label: b.name, done: !!S.stats.infernoZoneBossKillsEver[b.id]}));
+    return items.sort((a, b) => (a.done === b.done) ? 0 : (a.done ? -1 : 1));
+  }
+  if (ach.id === "every_name_counted"){
+    const items = allZoneBosses().map(b => ({label: b.name, done: !!S.stats.zoneBossKillsEver[b.id]}));
+    return items.sort((a, b) => (a.done === b.done) ? 0 : (a.done ? -1 : 1));
+  }
+  return null;
+}
+function achievementChecklistBodyHtml(ach){
+  const items = achievementChecklistFor(ach) || [];
+  return `<div class="stub" style="margin-top:4px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px 12px">
+      ${items.map(it => `<div style="font-size:12px;color:${it.done ? "var(--parchment)" : "var(--parchment-dim)"}">
+        ${it.done ? "&#10003;" : "&#9675;"} ${esc(it.label)}</div>`).join("")}
+    </div>
+  </div>`;
+}
+/* §12/§17 — one achievement row: name/reward, an explicit requirement
+   sentence with live cur/target (4a — never hand-typed separately from
+   ach.target/progress(S)), a progress bar, and — for checklist:true
+   achievements — a collapsible found/missing-by-name breakdown (4b),
+   default collapsed, persisted on S.ui.achOpen like every other
+   collapsible section (collapsibleSection/A.toggleUiSection). Done ones
+   read from S.achievements (sticky — see checkAchievements); everything
+   else reads a live progress(S) value, clamped to target for the bar. */
 function achievementRowHtml(ach){
   const done = !!S.achievements[ach.id];
   const cur = clamp(ach.progress(S), 0, ach.target);
@@ -5242,11 +5467,15 @@ function achievementRowHtml(ach){
       <span style="font-family:var(--serif);letter-spacing:.06em;color:${done ? "var(--gold)" : "var(--parchment)"}">${esc(ach.name)}${done ? " ✓" : ""}</span>
       <span style="color:var(--parchment-dim);font-size:11px">${rewardTxt}</span>
     </div>
-    <div class="flavor" style="font-style:normal;font-size:12px;margin:4px 0 6px">${esc(ach.desc)}</div>
+    <div style="font-size:12px;color:var(--parchment);margin:4px 0 2px">${esc(achievementReqText(ach))}
+      <b style="color:var(--parchment-dim)">${fmt(Math.min(cur, ach.target))} / ${fmt(ach.target)}</b></div>
+    <div class="flavor" style="font-style:normal;font-size:12px;margin:2px 0 6px">${esc(ach.desc)}</div>
     <div class="bar" style="height:12px">
       <div class="bar-fill ${done ? "fire" : "rest"}" style="width:${done ? 100 : pct}%"></div>
     </div>
-    <div style="font-size:11px;color:var(--parchment-dim);margin-top:3px">${fmt(Math.min(cur, ach.target))} / ${fmt(ach.target)}</div>
+    ${ach.checklist ? collapsibleSection("achOpen", ach.id,
+      `<span style="font-size:11px;color:var(--parchment-dim)">Checklist (${achievementChecklistFor(ach).filter(i=>i.done).length} / ${achievementChecklistFor(ach).length})</span>`,
+      () => achievementChecklistBodyHtml(ach), "margin:6px 0 0;font-size:12px") : ""}
   </div>`;
 }
 function panelHall(){
@@ -5384,6 +5613,24 @@ const A = {
     const c = activeChar();
     if (!c) return;
     mutate(() => { c.loop.onDeath = (v === "halt") ? "halt" : "resume"; });
+  },
+  // §17 — changing the limit RESETS limitDone to 0; otherwise re-arming an
+  // already-reached limit (or just changing it) would do nothing, since
+  // noteRunResolved only checks limitDone against the (new) limit going
+  // forward and never on its own re-zeroes a stale count.
+  setLoopLimit(v){
+    const c = activeChar();
+    if (!c) return;
+    mutate(() => { c.loop.limit = parseInt(v, 10) || 0; c.loop.limitDone = 0; });
+  },
+
+  /* §17 — end a zone run early. Zone runs only (no confirmation dialog per
+     the brief); Engine.abortRun itself refuses on a boss run, so this guard
+     is a UI convenience, not the enforcement point. */
+  abortRun(){
+    const c = activeChar();
+    if (!c || c.activity.type !== "run" || c.activity.kind !== "zone") return;
+    mutate(() => Engine.abortRun(c, Date.now()));
   },
 
   /* §6.6 — resting. Valid targets are 100/75/50% of maxHP (§7). Only from
@@ -5864,10 +6111,24 @@ function boot(){
   if (slow){
     showLoadingScreen();
     window.__bootTiming.tLoadingShown = performance.now();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      window.__bootTiming.tPainted = performance.now();   // a real frame was presented by now
+    /* rAF is throttled to zero in a backgrounded tab — and an idle game is
+       exactly the thing left in a background tab for the multi-hour gaps that
+       reach this branch. If the page is restored while hidden, the rAF chain
+       may not fire until the tab is focused, leaving the loading scrim up
+       indefinitely. No data is at risk (saveTimer and the beforeunload handler
+       are both registered inside finishBoot, so nothing overwrites lastSeen
+       while this is pending), but the game must not appear frozen. Whichever
+       path wins runs finishBoot exactly once. */
+    let booted = false;
+    const go = (painted) => {
+      if (booted) return;
+      booted = true;
+      window.__bootTiming.tPainted = performance.now();
+      window.__bootTiming.paintedFirst = painted;
       finishBoot(had, now, elapsed);
-    }));
+    };
+    requestAnimationFrame(() => requestAnimationFrame(() => go(true)));
+    setTimeout(() => go(false), 2000);   // fallback: hidden tab, throttled rAF
     return;
   }
   finishBoot(had, now, elapsed);
