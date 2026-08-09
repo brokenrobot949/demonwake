@@ -12,13 +12,20 @@
   --bg:#1a1715;
   --bg-panel:#22201d;
   --bg-raised:#2b2825;
-  --crimson:#c8102e;
-  --crimson-br:#e8213f;
+  --crimson:#c8102e;      /* structural red — borders, tab/bar fills, inset accents. NOT for text: measured
+                              2.49:1 on --bg-raised, fails AA (4.5:1) everywhere. See --crimson-text. */
+  --crimson-br:#e8213f;   /* brighter structural red — active-tab fill, large display type (title/.modal h2,
+                              >=18.66px bold, only needs 3:1 and clears it at 3.29:1 worst case). Small/normal
+                              text must use --crimson-text instead (measured only 3.29-4.01:1, fails AA). */
+  --crimson-text:#ff6b5a; /* §16 readability pass — the readable red for headings/labels/body-adjacent text.
+                              Desaturated toward ember/blood rather than brightened toward pink, per §14 tone.
+                              Measured 6.37:1 / 5.81:1 / 5.24:1 on bg / bg-panel / bg-raised — clears AA (4.5:1)
+                              on all three with margin. */
   --parchment:#e8e0d0;
   --parchment-dim:#9a9186;
   --fire:#ff4d1c;
   --gold:#d4a843;
-  --danger:#8b1a1a;
+  --danger:#8b1a1a;       /* structural only (borders) — as text this measured ~1.9:1, see .slot.dead */
   --line:#3a3531;
 
   /* quality borders (§15.3) */
@@ -28,9 +35,21 @@
   --q-legendary:#c8641e;
   --q-set:#3f9c4a;
   --q-unique:#8b2fc9;
+  --q-unique-text:#bb7ae6; /* §16 readability pass — .log.unique .m text; base --q-unique measured only
+                               2.0-2.6:1 as text. Lightened purple clears 4.5:1 on all three backgrounds. */
+  --upgrade:#4db85a;       /* §16 readability pass (3) — gear-compare "net upgrade" green. Measured
+                               5.1-5.8:1 on bg/bg-panel/bg-raised (item cards actually sit on bg-panel). */
 
   --serif:"Cinzel","Trajan Pro","Optima","Palatino Linotype",Georgia,"Times New Roman",serif;
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+
+  /* §16 UI polish — a single softened radius scale, used everywhere instead
+     of ad-hoc 2-3px corners. sm = small controls (buttons/inputs/bars),
+     md = cards/panels/stubs, lg = modals, pill = fully round (nav tabs). */
+  --r-sm:6px;
+  --r-md:10px;
+  --r-lg:14px;
+  --r-pill:999px;
 }
 
 *{box-sizing:border-box}
@@ -67,20 +86,20 @@ body{
   background:var(--bg-panel);border:1px solid var(--line);border-bottom:none;
   color:var(--parchment-dim);padding:8px 18px;cursor:pointer;
   font-family:var(--serif);letter-spacing:.1em;font-size:13px;
-  border-radius:3px 3px 0 0;
+  border-radius:var(--r-sm) var(--r-sm) 0 0;
 }
 .slot:hover{color:var(--parchment)}
 .slot.active{background:var(--bg-raised);color:var(--parchment);border-color:var(--crimson);
   box-shadow:inset 0 2px 0 var(--crimson)}
 .slot.locked{opacity:.45;cursor:default;font-style:italic}
-.slot.dead{color:var(--danger)}
-.slot.resting{color:var(--parchment-dim);font-style:italic}   /* §16 Phase 8 — dead/resting distinguishable in tabs */
+.slot.dead{color:var(--crimson-text)}   /* was --danger (~1.9:1, illegible) — see --danger comment */
+.slot.resting{color:var(--parchment-dim);font-style:italic}   /* §16 — dead/resting distinguishable in tabs */
 
 /* ---------- character card ---------- */
 .card{
   background:var(--bg-raised);border:1px solid var(--line);
   border-top-color:var(--crimson);
-  padding:16px 18px;border-radius:0 3px 3px 3px;
+  padding:16px 18px;border-radius:0 var(--r-lg) var(--r-lg) var(--r-lg);
 }
 .card-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .card-name{font-family:var(--serif);font-size:20px;letter-spacing:.14em;
@@ -96,7 +115,7 @@ body{
 /* ---------- bars ---------- */
 .bar{
   position:relative;height:18px;background:#151312;
-  border:1px solid var(--line);border-radius:2px;overflow:hidden;
+  border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;
 }
 .bar-fill{height:100%;width:0;transition:width .6s linear}
 .bar-fill.hp{background:linear-gradient(180deg,#a8202f,#6d141f)}
@@ -116,70 +135,107 @@ body{
 .bar-row .cap{font-size:10px;letter-spacing:.18em;text-transform:uppercase;
   color:var(--parchment-dim);margin-bottom:4px}
 
-/* ---------- main tabs ---------- */
-.tabs{display:flex;gap:2px;margin-top:18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+/* ---------- main tabs (§16 UI polish — read as real buttons, not an
+   underlined text row: filled pill shape, visible resting/hover/active) ---------- */
+.tabs{display:flex;gap:8px;margin-top:18px;padding-bottom:12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .tab{
-  background:none;border:none;border-bottom:2px solid transparent;
+  background:var(--bg-panel);border:1px solid var(--line);
   color:var(--parchment-dim);font-family:var(--serif);font-size:13px;
-  letter-spacing:.14em;text-transform:uppercase;padding:10px 16px;cursor:pointer;
+  letter-spacing:.14em;text-transform:uppercase;padding:10px 20px;cursor:pointer;
+  border-radius:var(--r-pill);transition:background .15s,border-color .15s,color .15s;
 }
-.tab:hover{color:var(--parchment)}
-.tab.active{color:var(--crimson-br);border-bottom-color:var(--crimson)}
+.tab:hover{color:var(--parchment);border-color:var(--parchment-dim);background:var(--bg-raised)}
+.tab.active{background:var(--crimson);border-color:var(--crimson-br);color:#fff;
+  box-shadow:0 2px 10px rgba(200,16,46,.35)}
 
 .panel{padding:20px 2px;min-height:220px}
-h2.sec{font-family:var(--serif);color:var(--crimson);font-size:16px;
+h2.sec{font-family:var(--serif);color:var(--crimson-text);font-size:16px;
   letter-spacing:.16em;text-transform:uppercase;margin:0 0 12px;font-weight:700}
 h3.sub{font-family:var(--serif);color:var(--parchment);font-size:14px;
   letter-spacing:.1em;margin:20px 0 8px;font-weight:600}
+h3.sub.collapsible{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;user-select:none}
+h3.sub.collapsible .car{font-size:11px;color:var(--parchment-dim)}
 .flavor{color:var(--parchment-dim);font-style:italic;line-height:1.65;max-width:64ch}
 .stub{
-  border:1px dashed var(--line);border-radius:3px;padding:16px 18px;
+  border:1px dashed var(--line);border-radius:var(--r-md);padding:16px 18px;
   color:var(--parchment-dim);background:var(--bg-panel);
 }
-.stub .ph{color:var(--crimson);font-family:var(--serif);letter-spacing:.12em;
+.stub .ph{color:var(--crimson-text);font-family:var(--serif);letter-spacing:.12em;
   font-size:11px;text-transform:uppercase;display:block;margin-bottom:6px}
 
 /* ---------- chronicle (§15.5) ---------- */
 .chronicle{
   margin-top:22px;background:var(--bg-panel);border:1px solid var(--line);
-  border-radius:3px;
+  border-radius:var(--r-md);
 }
 .chronicle-head{
   display:flex;justify-content:space-between;align-items:center;
   padding:10px 14px;border-bottom:1px solid var(--line);
 }
-.chronicle-head span{font-family:var(--serif);color:var(--crimson);font-size:12px;
+.chronicle-head span{font-family:var(--serif);color:var(--crimson-text);font-size:12px;
   letter-spacing:.18em;text-transform:uppercase}
 .chronicle-body{max-height:220px;overflow-y:auto;padding:10px 14px;font-size:13px}
 .log{display:flex;gap:12px;padding:3px 0;color:var(--parchment)}
 .log .t{color:var(--parchment-dim);font-variant-numeric:tabular-nums;min-width:44px}
-.log.crit .m{color:var(--crimson-br);font-weight:600}
+.log .m{flex:1;min-width:0}
+.log.crit .m{color:var(--crimson-text);font-weight:600}
 .log.loot .m{color:var(--gold)}
-.log.unique .m{color:var(--q-unique);font-weight:600}
+.log.unique .m{color:var(--q-unique-text);font-weight:600}
 .log.sys .m{color:var(--parchment-dim);font-style:italic}
 
 /* ---------- buttons ---------- */
 button.btn{
   background:var(--bg-raised);color:var(--parchment);
-  border:1px solid var(--line);border-radius:2px;
+  border:1px solid var(--line);border-radius:var(--r-sm);
   padding:8px 16px;cursor:pointer;font-family:var(--serif);
   letter-spacing:.1em;font-size:12px;text-transform:uppercase;
 }
 button.btn:hover{border-color:var(--crimson);color:var(--parchment)}
-button.btn.primary{background:var(--crimson);border-color:var(--crimson-br);color:#fff}
-button.btn.primary:hover{background:var(--crimson-br)}
+/* §16 readability pass (2) — the old solid crimson fill (rgb(200,16,46),
+   luminance 57) read hotter than everything else in the UI, including
+   Vardun's Forge's own "selected" treatment below. Brought down to the
+   SAME dim bg-panel fill (luminance 32) the Forge already uses, so a
+   primary button and a slotsel button now carry the same visual weight.
+   Hierarchy vs. secondary .btn is kept through colour, not brightness: an
+   idle crimson border + inset ring (secondary only gets the border, and
+   only on hover) and a bold crimson-text label (secondary stays parchment) —
+   see --crimson-text comment for why the label uses that var, not --crimson. */
+button.btn.primary{
+  background:var(--bg-panel);color:var(--crimson-text);font-weight:600;
+  border-color:var(--crimson);box-shadow:inset 0 0 0 1px var(--crimson);
+}
+button.btn.primary:hover{background:var(--bg-raised);border-color:var(--crimson-br);
+  box-shadow:inset 0 0 0 1px var(--crimson-br)}
 button.btn:disabled{opacity:.4;cursor:default}
+/* §16 — Vardun's Forge slot picker (2c): the plain .primary crimson fill
+   read as too hot for a simple "which slot is selected" toggle. Dimmer
+   panel fill + a crimson inset border reads as "selected" without glaring.
+   (Now the same treatment .primary uses above — see that comment.) */
+button.btn.slotsel{
+  background:var(--bg-panel);color:var(--parchment);border-color:var(--crimson);
+  box-shadow:inset 0 0 0 1px var(--crimson);
+}
+button.btn.slotsel:hover{background:var(--bg-raised)}
+
+select{
+  background:var(--bg-panel);color:var(--parchment);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:8px 10px;font-family:var(--sans);font-size:13px;
+  cursor:pointer;
+}
+select:focus{outline:none;border-color:var(--crimson)}
 
 /* ---------- modal ---------- */
 .scrim{
   position:fixed;inset:0;background:rgba(8,6,6,.86);
   display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;
+  overflow-y:auto;
 }
 .scrim[hidden]{display:none}
 .modal{
   background:var(--bg-raised);border:1px solid var(--crimson);
-  border-radius:3px;padding:26px 28px;max-width:520px;width:100%;
+  border-radius:var(--r-lg);padding:26px 28px;max-width:520px;width:100%;
   box-shadow:0 18px 60px rgba(0,0,0,.7);
+  max-height:calc(100vh - 40px);overflow-y:auto;
 }
 .modal h2{font-family:var(--serif);color:var(--crimson-br);font-size:20px;
   letter-spacing:.16em;text-transform:uppercase;margin:0 0 14px}
@@ -187,15 +243,51 @@ button.btn:disabled{opacity:.4;cursor:default}
 .modal input{
   width:100%;margin:14px 0 18px;background:#151312;border:1px solid var(--line);
   color:var(--parchment);padding:10px 12px;font-family:var(--serif);
-  font-size:16px;letter-spacing:.08em;border-radius:2px;
+  font-size:16px;letter-spacing:.08em;border-radius:var(--r-sm);
 }
 .modal input:focus{outline:none;border-color:var(--crimson)}
-.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
 
 footer.credit{
   margin-top:34px;padding-top:14px;border-top:1px solid var(--line);
   color:var(--parchment-dim);font-size:11px;letter-spacing:.1em;
-  display:flex;justify-content:space-between;
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;
+}
+
+/* ============================================================
+   §16 UI polish — mobile pass. Nothing below changes layout above
+   768px; desktop is unaffected. Most grids already use CSS Grid
+   auto-fit/minmax or flex-wrap and reflow for free — this covers what
+   doesn't: touch-target sizing, the 3-column skill tree, and header/
+   nav rows that assumed desktop width.
+   ============================================================ */
+@media (max-width:768px){
+  .app{padding:0 10px 48px}
+  .masthead{flex-direction:column;align-items:flex-start;gap:4px;padding:16px 2px 12px}
+  .title{font-size:24px;letter-spacing:.14em}
+  .clanname{text-align:left}
+
+  /* touch targets — buttons, tabs, slots and selects all >=44px tall */
+  button.btn, .tab, .slot{min-height:44px;padding:11px 16px}
+  select{min-height:44px;padding:10px 10px}
+
+  .tabs{gap:6px}
+  .tab{padding:11px 14px;font-size:11px;flex:1 1 auto;text-align:center}
+  .slots{gap:6px}
+  .slot{padding:10px 14px;font-size:12px}
+
+  .card{padding:14px}
+  .card-name{font-size:17px}
+  .statline{gap:12px 16px}
+}
+/* the 3-branch skill tree (treeBranchHtml) — the desktop flex-wrap already
+   stacks branches at phone widths (each has min-width:220px, three don't
+   fit), but tablet width (768px) is wide enough to fit all three cramped
+   side by side — force one branch per row below the doc's "hardest case"
+   threshold so it reads as a real vertical list, not a squeeze. */
+@media (max-width:820px){
+  #panel [data-tree-branches]{flex-direction:column}
+  #panel [data-tree-branches] > div{min-width:0;width:100%}
 }
 </style>
 </head>
@@ -581,7 +673,7 @@ const BAL = {
 
 const SAVE_KEY = "demonwake_save_v1";
 const SAVE_VERSION = 1;
-const BUILD = "phase 11 — polish";
+const BUILD = "v1.0";
 
 /* ==================================================================
    2. STATIC DATA
@@ -1420,7 +1512,7 @@ const FACILITIES = {
   quarters:     {name:"Quarters",      tiers:5, base:8000,  top:7200000,  effect:"+12 inventory slots per character, per tier"},
   infirmary:    {name:"Infirmary",     tiers:5, base:15000, top:14400000, effect:"+10% resting rate per tier"},
   trainingYard: {name:"Training Yard", tiers:5, base:12000, top:10800000, effect:"+2% Rested buff strength per tier"},
-  archive:      {name:"Archive",       tiers:3, base:25000, top:4800000,  effect:"+1 auto-salvage filter rule per tier (Phase 11)"},
+  archive:      {name:"Archive",       tiers:3, base:25000, top:4800000,  effect:"+1 auto-salvage filter rule per tier"},
   warTable:     {name:"War Table",     tiers:5, base:40000, top:36000000, effect:"-1% run duration, clan-wide, per tier"},
 };
 function facilityFactor(fac){ return Math.pow(fac.top / fac.base, 1 / (fac.tiers - 1)); }
@@ -1592,6 +1684,15 @@ function freshProgress(){
     bossUnlockAt: {},
     actBossKillsSinceAttempt: {},
     actBossEverUnlocked: {},
+    // §16 UI polish (§6) — bossUnlocked TOGGLES false on every relock, so it
+    // can't drive "reveal this boss's flavor text permanently once seen".
+    // zoneBossEverUnlocked is the zone-boss twin of actBossEverUnlocked
+    // above: set once, on first unlock, never cleared — see
+    // checkZoneBossUnlock. Migrated automatically for old saves the same
+    // way every other freshProgress() key is (migrate() merges each tier's
+    // saved record over a pristine freshProgress(), never the reverse — see
+    // migrate()'s header comment).
+    zoneBossEverUnlocked: {},
     // §9.6/§16 Phase 11 — Regalia of the Last King 3pc ("boss relock is
     // skipped once per act"). actN -> true once used. Resolution: "once per
     // act" is read as once per act INDEX on THIS difficulty tier's progress
@@ -1752,7 +1853,13 @@ function newState(){
     // panel instead, which needs no active character. Persists until the
     // next retirement; harmless to keep in the save.
     lastRetirement: null,
-    ui: {tab:"quests", questsOpen:{}},
+    // §16 — charOpen/gearOpen back the Character-tab and Gear-tab
+    // collapsible sections (collapsibleSection/A.toggleUiSection), all
+    // defaulting CLOSED per the brief. Same persistence pattern as
+    // questsOpen — lives on S.ui so it survives a reload.
+    ui: {tab:"quests", questsOpen:{},
+      charOpen: {difficulty:false, combat:false, economy:false, tree:false},
+      gearOpen: {salvage:false}},
     // §13 Phase 10 — The Cinder Market. stock is 6 items (BAL.MARKET_STOCK_SIZE),
     // refreshAt is the ABSOLUTE epoch ms of the next hourly refresh (§2.1 —
     // never a countdown). refreshAt:0 means "never rolled" — refreshMarketIfNeeded
@@ -1949,6 +2056,24 @@ function zoneIlvlFor(act, zoneIdx, difficulty){
 // BAL.DIFFICULTY[...] lookups).
 function threatMultFor(difficulty){ return (BAL.DIFFICULTY[difficulty] || BAL.DIFFICULTY.normal).threatMult; }
 
+/* §8.4 + §10.1 — the Threat that REWARDS are computed from. Rewards scale with
+   the difficulty tier exactly as damage does (set by Rob 2026-08-09).
+
+   Before this, xp/gold read the RAW `info.threat` while Calc.tickDamage read the
+   tier-scaled one — so Inferno content was 13.3x more dangerous and paid exactly
+   Normal rates (measured: identical 615 xp / 13,347 gold on all three tiers).
+   That pushed levels 61-99 to ~400 runs against §8.5's ~180 target. Gear power
+   already scaled with the tier via §9.3's difficultyMult, so rewards were the
+   only thing the Phase 10 tier work left behind.
+
+   Engine.applyTick AND rewardEstimateFor both call this — never inline
+   `info.threat` at either site, or the displayed estimate and the actual payout
+   will silently disagree. */
+function rewardThreatFor(info){
+  if (!info) return 0;
+  return info.effThreat != null ? info.effThreat : info.threat;
+}
+
 // difficulty defaults to "normal" for call sites with no specific character
 // in hand (e.g. a generic content-name lookup) — RAW `threat`/`ilvl` are
 // always the Normal-tier baseline; `effThreat` is pre-multiplied for display
@@ -2131,7 +2256,10 @@ function checkZoneBossUnlock(c, info){
   const bossId = info.zone.boss.id;
   if (progressFor(c).bossUnlocked[bossId]) return;
   const need = progressFor(c).bossUnlockAt[bossId] != null ? progressFor(c).bossUnlockAt[bossId] : 3;
-  if ((progressFor(c).zoneClears[info.zone.id] || 0) >= need) progressFor(c).bossUnlocked[bossId] = true;
+  if ((progressFor(c).zoneClears[info.zone.id] || 0) >= need){
+    progressFor(c).bossUnlocked[bossId] = true;
+    progressFor(c).zoneBossEverUnlocked[bossId] = true;   // §16 — permanent, survives future relocks
+  }
 }
 
 /* §8.2 rule 2 (initial) + rule 4 (reopen), see the §6c ambiguity note in the
@@ -2955,7 +3083,13 @@ function checkAchievements(c, ctx){
 const Engine = {
   /* Advance every character to wall-clock `now`. Safe to call at any
      frequency — it steps by discrete 5-minute ticks and stops when the
-     next tick is still in the future. */
+     next tick is still in the future. Return value: total discrete engine
+     steps that fired (per-character ticks/rest-ends/deaths/revives, plus a
+     market refresh counted as one more) — §16 root-cause fix, boot()'s live
+     loop uses "> 0" to decide whether a full structural render() is needed
+     this second, or just renderLive()'s cheap in-place patch. Zero steps
+     does NOT mean state is frozen (see renderLive's header comment) — only
+     that nothing needs #panel rebuilt. */
   advanceTo(now){
     let steps = 0;
     for (const c of S.characters){
@@ -2965,7 +3099,7 @@ const Engine = {
     // per call rather than inside advanceChar. Absolute-timestamp hourly
     // refresh (§2.1) — correct whether this is the live 1000ms loop or a
     // multi-hour offline catch-up (see refreshMarketIfNeeded).
-    Engine.refreshMarketIfNeeded(now);
+    if (Engine.refreshMarketIfNeeded(now)) steps++;
     S.lastSeen = now;
     return steps;
   },
@@ -2976,13 +3110,16 @@ const Engine = {
   // mints the first stock immediately. A long offline gap doesn't replay
   // every missed hour — only the CURRENT hour's stock matters, so this fast-
   // forwards refreshAt to the next boundary strictly after `now` in one pass.
+  // Returns whether it actually refreshed (§16 — feeds advanceTo's step
+  // count so the live loop's Town-tab market card gets rebuilt on refresh).
   refreshMarketIfNeeded(now){
     const m = S.market;
-    if (m.refreshAt && now < m.refreshAt) return;
+    if (m.refreshAt && now < m.refreshAt) return false;
     m.stock = Engine.rollMarketStock();
     let next = (m.refreshAt || now) + BAL.MARKET_REFRESH_MS;
     while (next <= now) next += BAL.MARKET_REFRESH_MS;
     m.refreshAt = next;
+    return true;
   },
   rollMarketStock(){
     if (!S.characters.length) return [];
@@ -3139,8 +3276,12 @@ const Engine = {
     // (Phase 7's Bloodfury seam) so class passives land as a one-line change.
     const rewardMult = a.kind === "zoneboss" ? BAL.BOSS_REWARD_MULT * bossRewardMultFor(c)
       : a.kind === "actboss" ? BAL.ACT_BOSS_REWARD_MULT * bossRewardMultFor(c) : 1;
-    a.accrued.xp   += (BAL.XP_RATE   * Math.pow(threat, BAL.XP_SCALE))   / ticksTotal * rewardMult;
-    a.accrued.gold += (BAL.GOLD_RATE * Math.pow(threat, BAL.GOLD_SCALE)) / ticksTotal * rewardMult;
+    // §8.4 — rewards use the TIER-SCALED Threat (rewardThreatFor), not the raw
+    // `threat` local above, which stays raw because Calc.tickDamage applies the
+    // multiplier itself. rewardEstimateFor calls the same helper.
+    const rewardThreat = rewardThreatFor(info);
+    a.accrued.xp   += (BAL.XP_RATE   * Math.pow(rewardThreat, BAL.XP_SCALE))   / ticksTotal * rewardMult;
+    a.accrued.gold += (BAL.GOLD_RATE * Math.pow(rewardThreat, BAL.GOLD_SCALE)) / ticksTotal * rewardMult;
 
     // §9c / §7.1 — drops accrue per tick (not a lump at run end) so a death
     // tick keeps whatever was found before it, same as xp/gold (§6.5).
@@ -3737,18 +3878,86 @@ function forecastHtml(c, targetId){
   // useful part (105% is survivable with luck, 133% never is).
   const lo = Math.round(f.lo * 100), hi = Math.round(f.hi * 100);
   const overrun = f.hi > 1;
-  const riskColor = f.risk.crimson ? "var(--crimson-br)" : "var(--parchment)";
+  const riskColor = f.risk.crimson ? "var(--crimson-text)" : "var(--parchment)";
   // §6.4/Phase 7 — deathProb is the TRUE fraction of Monte Carlo trials whose
   // simulated HP hit 0 (see forecastFor). Shown alongside the existing
   // mean-cost-driven risk band, not in place of it — see the comment there.
   const deathPct = Math.round(f.deathProb * 100);
   return `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:12px;color:var(--parchment-dim)">
     ${esc(f.name)} &middot; Threat ${f.threat} &middot; Your Power ${f.power}<br>
-    Estimated HP cost: <b style="color:${overrun ? "var(--crimson-br)" : "var(--parchment)"}">${lo}&ndash;${hi}%</b>${
-      overrun ? ` <span style="color:var(--crimson-br)">&middot; exceeds your HP</span>` : ""}<br>
+    Estimated HP cost: <b style="color:${overrun ? "var(--crimson-text)" : "var(--parchment)"}">${lo}&ndash;${hi}%</b>${
+      overrun ? ` <span style="color:var(--crimson-text)">&middot; exceeds your HP</span>` : ""}<br>
     Death risk: <b style="color:${riskColor}">${f.risk.label}</b>
     <span style="color:var(--parchment-dim)">&middot; ${deathPct}% chance of death</span>
+    ${rewardEstimateHtml(c, targetId)}
   </div>`;
+}
+/* ==================================================================
+   §16 readability pass (4) — pre-run REWARD estimate, shown alongside the
+   HP-cost forecast above. Every number mirrors the REAL formulas
+   Engine.applyTick/Engine.completeRun/Engine.payout use — never hardcoded
+   or approximated — so a survived run's actual payout matches this within
+   rounding (see report's verification against a completed run). Cheap
+   arithmetic (no Monte Carlo), safe to call every render.
+   ================================================================== */
+function rewardEstimateFor(c, targetId){
+  const info = findContent(targetId, c.difficulty);
+  if (!info) return null;
+  const isBoss = info.kind === "zoneboss" || info.kind === "actboss";
+  const atMs = Date.now();
+  // §10.1/§17 — same boss reward multiplier Engine.applyTick applies.
+  const rewardMult = info.kind === "zoneboss" ? BAL.BOSS_REWARD_MULT * bossRewardMultFor(c)
+    : info.kind === "actboss" ? BAL.ACT_BOSS_REWARD_MULT * bossRewardMultFor(c) : 1;
+  // §6.2 — Engine.applyTick accrues (RATE * threat^SCALE)/ticksTotal per tick,
+  // summed over ticksTotal ticks; the /ticksTotal cancels exactly, so a
+  // survived run's raw total (before payout's final multipliers) is just
+  // this one term. Uses rewardThreatFor(info) — the SAME tier-scaled Threat
+  // Engine.applyTick reads for xp/gold, so the displayed estimate and the
+  // actual payout cannot drift apart. See rewardThreatFor's comment for why
+  // rewards scale with the difficulty tier.
+  const rewardThreat = rewardThreatFor(info);
+  const rawXp = BAL.XP_RATE * Math.pow(rewardThreat, BAL.XP_SCALE) * rewardMult;
+  const rawGold = BAL.GOLD_RATE * Math.pow(rewardThreat, BAL.GOLD_SCALE) * rewardMult;
+  const xp = rawXp * restedXpMultFor(c) * xpGainFor(c, atMs);
+  const gold = rawGold * goldFindFor(c, atMs);
+  // §10.1 — renown is a lump sum on completion, not per-tick; same table
+  // Engine.completeRun uses.
+  const renown = (info.kind === "zone" ? BAL.RENOWN_ZONE_MULT
+    : info.kind === "zoneboss" ? BAL.RENOWN_ZONEBOSS_MULT : BAL.RENOWN_ACTBOSS_MULT) * info.act.n;
+  // §10.1 — act-boss first clear (this difficulty, clan-wide) adds a bonus;
+  // same S.actsCleared check resolveBossAttempt makes.
+  let firstClearBonus = 0;
+  if (info.kind === "actboss" && !(S.actsCleared[c.difficulty] || []).includes(info.act.n)){
+    firstClearBonus = BAL.RENOWN_ACTCLEAR_MULT * info.act.n;
+  }
+  // §9c/§7.1 — expected drop count, same expectation applyTick's per-tick
+  // Bernoulli resolves to on average.
+  const items = BAL.DROPS_PER_RUN * itemFindFor(c, atMs);
+  // §9.2 — rare-or-better odds off the SAME weight column (zone vs boss)
+  // Items.rollQuality reads; informational context for whether a boss relock
+  // is worth it, not a promise.
+  const q = BAL.QUALITY, keys = ["common","magic","rare","legendary","set","unique"];
+  const wKey = isBoss ? "wBoss" : "wZone";
+  let total = 0, rareUp = 0;
+  for (const k of keys){
+    total += q[k][wKey];
+    if (k !== "common" && k !== "magic") rareUp += q[k][wKey];
+  }
+  return {xp, gold, renown, firstClearBonus, items, ilvl: info.ilvl,
+    rareUpPct: total > 0 ? rareUp / total * 100 : 0};
+}
+function rewardEstimateHtml(c, targetId){
+  const r = rewardEstimateFor(c, targetId);
+  if (!r) return "";
+  const renownTxt = r.firstClearBonus
+    ? `${fmt(r.renown + r.firstClearBonus)} Renown <span style="color:var(--parchment-dim)">(incl. ${fmt(r.firstClearBonus)} first-clear)</span>`
+    : `${fmt(r.renown)} Renown`;
+  return `<br>Rewards if survived: <b style="color:var(--parchment)">${fmt(r.xp)} XP</b> &middot;
+    <b style="color:var(--gold)">${fmt(r.gold)} gold</b> &middot;
+    <b style="color:var(--parchment)">${renownTxt}</b> &middot;
+    <b style="color:var(--parchment)">~${r.items.toFixed(1)} items</b>
+    <span style="color:var(--parchment-dim)">(ilvl ${r.ilvl}, ~${Math.round(r.rareUpPct)}% rare+)</span><br>
+    <span style="font-style:italic">A death keeps everything accrued before that tick — not all-or-nothing.</span>`;
 }
 
 /* ==================================================================
@@ -3913,7 +4122,7 @@ function buildAndShowDigest(pre, drops, elapsedMs, achievements){
 
   // §16 Phase 9/§7.1 — achievements earned during the catch-up window.
   const achHtml = (achievements && achievements.length)
-    ? `<div style="margin:10px 0;color:var(--crimson-br)">Achievement${achievements.length===1?"":"s"}: ${achievements.map(esc).join(", ")}</div>`
+    ? `<div style="margin:10px 0;color:var(--crimson-text)">Achievement${achievements.length===1?"":"s"}: ${achievements.map(esc).join(", ")}</div>`
     : "";
 
   document.getElementById("digestModalBody").innerHTML = `
@@ -3955,7 +4164,7 @@ function renderCreateModal(){
     return `<button class="btn ${creationState.cls===k?"primary":""}" onclick="A.pickCreateClass('${k}')">${esc(cls.name)}</button>`;
   }).join(" ");
   const clsDesc = creationState.cls
-    ? `<div class="flavor" style="margin:10px 0;font-style:normal"><b style="color:var(--crimson)">${esc(CLASSES[creationState.cls].passive)}</b> — ${esc(CLASSES[creationState.cls].desc)}</div>`
+    ? `<div class="flavor" style="margin:10px 0;font-style:normal"><b style="color:var(--crimson-text)">${esc(CLASSES[creationState.cls].passive)}</b> — ${esc(CLASSES[creationState.cls].desc)}</div>`
     : "";
   el.innerHTML = `
     <h2>Name a Champion</h2>
@@ -4009,6 +4218,104 @@ function render(){
   renderChronicle();
 }
 
+/* ==================================================================
+   8b. LIVE TICK RENDER  (§16 root-cause fix)
+   ------------------------------------------------------------------
+   The bug: boot()'s 1000ms loop used to call the full render() every
+   second, and render() -> renderPanel() -> el.innerHTML = ... on the WHOLE
+   #panel every time. Rebuilding that DOM every second reset every scroll
+   container inside it to the top (the Clan Hall's Renown/Achievements
+   lists) and destroyed any open <select> mid-interaction (Loop Policy) —
+   the browser tears down and recreates the element, which forcibly closes
+   an open dropdown and can't preserve scrollTop.
+
+   The fix: Engine.advanceTo(now) already returns how many discrete engine
+   steps it advanced (a tick applied, a run/rest/death/revive resolved, a
+   market refresh) — zero means nothing STRUCTURAL changed this second,
+   only elapsed wall-clock time. boot()'s loop now calls the real render()
+   only when steps > 0; otherwise it calls this function, which patches
+   just the handful of nodes that visibly change every second (HP/progress
+   bars, countdown text) via textContent/style.width on the EXISTING DOM —
+   never innerHTML — so #panel is never touched and nothing inside it loses
+   scroll position or a live interaction. mutate() (every user action)
+   still calls the full render() unconditionally — user actions are exactly
+   the "something structural changed" case.
+
+   Continuous state (resting/idle HP regen) is still correct here even
+   though it isn't a "step": Engine.advanceChar mutates c.hp/act.startedAt
+   in place on every call, step or not (see the rest/idle branches) — this
+   function just has to read that already-current state and paint it.
+   ================================================================== */
+function renderLive(){
+  const c = activeChar();
+  if (!c) return;   // renderCard() already covers "no living members"; nothing to patch
+
+  const maxHP = Calc.maxHP(c), hpPct = Calc.hpFrac(c) * 100;
+  const hpFill = document.getElementById("hpBarFill");
+  if (hpFill){ hpFill.style.width = hpPct + "%"; hpFill.classList.toggle("hurt", hpPct < 50); }
+  const hpText = document.getElementById("hpBarText");
+  if (hpText) hpText.textContent = `${fmt(c.hp)} / ${fmt(maxHP)}`;
+
+  const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+  setTxt("statPower", fmt(Calc.power(c)));
+  setTxt("statGold", fmt(S.gold));
+  setTxt("statRenown", fmt(S.renown));
+  setTxt("statXp", `${fmt(c.xp)} / ${fmt(Calc.xpToNext(c.level))}`);
+  setTxt("statPoints", c.skillPoints);
+
+  const capEl = document.getElementById("activityCap");
+  if (capEl) capEl.innerHTML = activityCaption(c);
+
+  const now = Date.now(), a = c.activity;
+  const fillEl = document.getElementById("actBarFill"), lEl = document.getElementById("actBarL"), rEl = document.getElementById("actBarR");
+  if (fillEl && lEl && rEl){
+    if (a.type === "run"){
+      const pct = clamp((now - a.startedAt) / (a.endsAt - a.startedAt), 0, 1) * 100;
+      fillEl.style.width = pct + "%";
+      lEl.textContent = contentName(a.targetId);
+      rEl.textContent = `${Math.floor(pct)}% · ${fmtDur(a.endsAt - now)} left`;
+    } else if (a.type === "rest"){
+      const pct = Calc.hpFrac(c) * 100;
+      fillEl.style.width = pct + "%";
+      lEl.textContent = "RESTING";
+      rEl.textContent = `${Math.floor(pct)}%`;
+    } else if (a.type === "dead"){
+      lEl.textContent = "DEAD";
+      rEl.textContent = `Revives in ${fmtDur(a.revivesAt - now)}`;
+    } else {
+      lEl.textContent = "Awaiting orders";
+      rEl.textContent = "";
+    }
+  }
+
+  // Recovery countdowns — patch only the numeric duration inside each
+  // "Rest to X%" button (data-rest-target, see recoveryControls). The
+  // button SET is structural (added/removed as HP crosses a threshold) and
+  // is left alone here; it self-corrects on the next real render(), which
+  // this same loop still runs whenever advanceTo() actually stepped.
+  if (a.type !== "run" && a.type !== "rest" && a.type !== "dead"){
+    const rate = maxHP * restRateFor(c) / 3600000;
+    document.querySelectorAll("#recoveryWrap [data-rest-target]").forEach(btn => {
+      const target = parseFloat(btn.getAttribute("data-rest-target"));
+      const durEl = btn.querySelector(".live-dur");
+      if (durEl && rate > 0) durEl.textContent = fmtDur(Math.max(0, (target - c.hp) / rate));
+    });
+  }
+
+  // §16 item 1 footnote — "if any other panel relies on per-second repaint
+  // to look live": the Town tab has two (Cinder Market refresh, Mystic buff
+  // remaining). Both live inside #panel, which renderLive() otherwise never
+  // touches — patch them by id, only when that panel is actually showing.
+  if (S.ui.tab === "town"){
+    const mkt = document.getElementById("marketRefreshTxt");
+    if (mkt) mkt.textContent = fmtDur(Math.max(0, S.market.refreshAt - now));
+    if (c.buffs.mystic){
+      const myst = document.getElementById("mysticRemainingTxt");
+      if (myst) myst.textContent = fmtDur(Math.max(0, c.buffs.mystic.expiresAt - now));
+    }
+  }
+}
+
 function renderSlots(){
   const el = document.getElementById("slots");
   const out = [];
@@ -4033,6 +4340,13 @@ function renderSlots(){
   el.innerHTML = out.join("");
 }
 
+/* §16 root-cause fix — every element a per-second tick needs to touch
+   carries a stable id/data-attribute here so renderLive() (below) can patch
+   text/width in place instead of the old "rebuild the whole panel every
+   second" approach that reset scroll position and killed open <select>s.
+   #charCard itself holds no scrollable or interactive state, so rebuilding
+   it wholesale is safe — but the ids let renderLive() do it surgically
+   anyway, matching the pattern used for the rest of the live state. */
 function renderCard(){
   const el = document.getElementById("charCard");
   const c = activeChar();
@@ -4046,27 +4360,27 @@ function renderCard(){
     <div class="card-head">
       <span class="card-name">${esc(c.name)}</span>
       <span class="card-sub">${cls.name} &middot; <b>Lv ${c.level}</b></span>
-      <span class="card-sub" style="color:var(--crimson)">${cls.passive}</span>
+      <span class="card-sub" style="color:var(--crimson-text)">${cls.passive}</span>
     </div>
 
     <div class="bar">
-      <div class="bar-fill hp ${hpPct<50?"hurt":""}" style="width:${hpPct}%"></div>
-      <div class="bar-label"><span>HP</span><span>${fmt(c.hp)} / ${fmt(maxHP)}</span></div>
+      <div class="bar-fill hp ${hpPct<50?"hurt":""}" style="width:${hpPct}%" id="hpBarFill"></div>
+      <div class="bar-label"><span>HP</span><span id="hpBarText">${fmt(c.hp)} / ${fmt(maxHP)}</span></div>
     </div>
 
     <div class="statline">
-      <span>Power <b>${fmt(Calc.power(c))}</b></span>
-      <span class="gold">Gold <b>${fmt(S.gold)}</b></span>
-      <span>Renown <b>${fmt(S.renown)}</b></span>
-      <span>XP <b>${fmt(c.xp)} / ${fmt(xpNeed)}</b></span>
-      <span>Points <b>${c.skillPoints}</b></span>
+      <span>Power <b id="statPower">${fmt(Calc.power(c))}</b></span>
+      <span class="gold">Gold <b id="statGold">${fmt(S.gold)}</b></span>
+      <span>Renown <b id="statRenown">${fmt(S.renown)}</b></span>
+      <span>XP <b id="statXp">${fmt(c.xp)} / ${fmt(xpNeed)}</b></span>
+      <span>Points <b id="statPoints">${c.skillPoints}</b></span>
     </div>
 
     <div class="bar-row">
-      <div class="cap">${activityCaption(c)}</div>
+      <div class="cap" id="activityCap">${activityCaption(c)}</div>
       ${activityBar(c)}
     </div>
-    ${recoveryControls(c)}`;
+    <div id="recoveryWrap">${recoveryControls(c)}</div>`;
 }
 
 // §6.7 — Rested is shown until consumed by the next run, not just while idle.
@@ -4103,12 +4417,15 @@ function recoveryControls(c){
     restHtml = `<button class="btn" onclick="A.stopRest()">Stop Resting</button>
       <span class="flavor" style="font-style:normal;margin-left:10px">Resting to ${Math.round(target / maxHP * 100)}%</span>`;
   } else {
+    // data-rest-target carries the target HP so renderLive() can recompute
+    // and patch just the .live-dur countdown text every second without
+    // touching the button itself (or its onclick).
     restHtml = [1, 0.75, 0.5].map(f => {
       const target = maxHP * f;
       if (c.hp >= target) return "";
       const ms = (target - c.hp) / rate;
       const label = f === 1 ? "100% (Rested)" : Math.round(f * 100) + "%";
-      return `<button class="btn" onclick="A.startRest(${f})">Rest to ${label} &middot; ${fmtDur(ms)}</button>`;
+      return `<button class="btn" data-rest-target="${target}" onclick="A.startRest(${f})">Rest to ${label} &middot; <span class="live-dur">${fmtDur(ms)}</span></button>`;
     }).filter(Boolean).join(" ");
   }
 
@@ -4118,27 +4435,29 @@ function recoveryControls(c){
   </div>`;
 }
 
-/* §15.4 — fire fill for runs, dim parchment for rest, danger for dead */
+/* §15.4 — fire fill for runs, dim parchment for rest, danger for dead.
+   actBarFill/actBarL/actBarR ids let renderLive() patch progress/countdown
+   text every second without rebuilding the bar (see renderLive). */
 function activityBar(c){
   const a = c.activity, now = Date.now();
   if (a.type === "run"){
     const pct = clamp((now - a.startedAt) / (a.endsAt - a.startedAt), 0, 1) * 100;
-    return `<div class="bar"><div class="bar-fill fire" style="width:${pct}%"></div>
-      <div class="bar-label"><span>${esc(contentName(a.targetId))}</span>
-      <span>${Math.floor(pct)}% &middot; ${fmtDur(a.endsAt - now)} left</span></div></div>`;
+    return `<div class="bar"><div class="bar-fill fire" style="width:${pct}%" id="actBarFill"></div>
+      <div class="bar-label"><span id="actBarL">${esc(contentName(a.targetId))}</span>
+      <span id="actBarR">${Math.floor(pct)}% &middot; ${fmtDur(a.endsAt - now)} left</span></div></div>`;
   }
   if (a.type === "rest"){
     const pct = Calc.hpFrac(c) * 100;
-    return `<div class="bar"><div class="bar-fill rest" style="width:${pct}%"></div>
-      <div class="bar-label"><span>RESTING</span><span>${Math.floor(pct)}%</span></div></div>`;
+    return `<div class="bar"><div class="bar-fill rest" style="width:${pct}%" id="actBarFill"></div>
+      <div class="bar-label"><span id="actBarL">RESTING</span><span id="actBarR">${Math.floor(pct)}%</span></div></div>`;
   }
   if (a.type === "dead"){
     const left = a.revivesAt - now;
-    return `<div class="bar"><div class="bar-fill dead" style="width:100%"></div>
-      <div class="bar-label"><span>DEAD</span><span>Revives in ${fmtDur(left)}</span></div></div>`;
+    return `<div class="bar"><div class="bar-fill dead" style="width:100%" id="actBarFill"></div>
+      <div class="bar-label"><span id="actBarL">DEAD</span><span id="actBarR">Revives in ${fmtDur(left)}</span></div></div>`;
   }
-  return `<div class="bar"><div class="bar-fill" style="width:0"></div>
-    <div class="bar-label"><span>Awaiting orders</span><span></span></div></div>`;
+  return `<div class="bar"><div class="bar-fill" style="width:0" id="actBarFill"></div>
+    <div class="bar-label"><span id="actBarL">Awaiting orders</span><span id="actBarR"></span></div></div>`;
 }
 
 function contentName(id){
@@ -4189,16 +4508,26 @@ function actBossLockMsg(c, act){
 /* §15.3 — acts collapsible, zone bosses adjacent to their zone. §6f: default
    to expanding only the current act (currentActFor) — everything else opens
    on click and the choice persists in S.ui.questsOpen (per-act override). */
+// §16 (§6) — zone/zone-boss/act-boss flavor prose (and act opening/closing
+// text) stays hidden until that content has been unlocked at least once,
+// then stays revealed permanently — even once a boss relocks. `revealed`
+// must come from a permanent flag (zoneUnlocked, zoneBossEverUnlocked,
+// actBossEverUnlocked, actsCleared), never the TOGGLING bossUnlocked, or a
+// relock would re-hide prose the player already read.
+function flavorOrHidden(revealed, text, extraStyle){
+  return `<div class="flavor" style="margin-top:4px${extraStyle || ""}">${revealed ? esc(text) : "Unknown."}</div>`;
+}
 function panelQuests(){
   const out = [];
   const c = activeChar();
-  const diffKey = c ? c.difficulty : "normal";   // §8.4 Phase 10 — bands/ilvl/threat all shift per tier
+  const diffKey = c ? c.difficulty : "normal";   // §8.4 — bands/ilvl/threat all shift per tier
   const curAct = currentActFor(c);
   const openMap = S.ui.questsOpen || {};
 
   for (const act of ACTS){
     const open = openMap.hasOwnProperty(act.n) ? openMap[act.n] : act.n === curAct;
     const actReached = !!(c && progressFor(c).zoneUnlocked[act.zones[0].id]);
+    const actCleared = !!(c && progressFor(c).actsCleared.includes(act.n));
     const [bandLo, bandHi] = actLevelBand(act, diffKey);
     out.push(`<h2 class="sec" style="cursor:pointer;display:flex;justify-content:space-between;
         align-items:center;gap:10px${actReached ? "" : ";opacity:.5"}" onclick="A.toggleAct(${act.n})">
@@ -4207,10 +4536,11 @@ function panelQuests(){
     </h2>`);
     if (!open) continue;
 
-    out.push(`<div class="flavor" style="margin-bottom:14px">${esc(act.opening.split("\n\n")[0])}</div>`);
+    out.push(flavorOrHidden(actReached, act.opening.split("\n\n")[0], ";margin-bottom:14px"));
     act.zones.forEach((z, zi) => {
       const unlocked = !!(c && progressFor(c).zoneUnlocked[z.id]);
       const bossUnlocked = !!(c && progressFor(c).bossUnlocked[z.boss.id]);
+      const bossEverUnlocked = !!(c && progressFor(c).zoneBossEverUnlocked[z.boss.id]);
       const ilvl = zoneIlvlFor(act, zi, diffKey);
       const zoneThreat = z.threat * threatMultFor(diffKey);
       const bossThreat = z.threat * 1.4 * threatMultFor(diffKey);
@@ -4218,32 +4548,36 @@ function panelQuests(){
         <div class="stub" style="margin-bottom:10px${unlocked ? "" : ";opacity:.5"}">
           <span class="ph">Zone ${z.id.slice(1)} &middot; Threat ${fmt(zoneThreat)} &middot; Levels ${bandLo}–${bandHi} &middot; ilvl ${ilvl}</span>
           <div style="color:var(--parchment);font-family:var(--serif);letter-spacing:.08em">${esc(z.name)}</div>
-          <div class="flavor" style="margin-top:4px">${esc(z.flavor)}</div>
+          ${flavorOrHidden(unlocked, z.flavor)}
           ${unlocked ? forecastHtml(c, z.id) : `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneLockMsg(act, z))}</div>`}
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:220px">
               <span class="ph" style="margin:0">Zone Boss &middot; Threat ${fmt(bossThreat)} &middot; ${bossUnlocked ? "unlocked" : "locked"}</span>
               <div style="color:var(--parchment-dim)">${esc(z.boss.name)}</div>
-              <div class="flavor" style="margin-top:4px">${esc(z.boss.flavor)}</div>
+              ${flavorOrHidden(bossEverUnlocked, z.boss.flavor)}
               ${bossUnlocked ? forecastHtml(c, z.boss.id) : (c ? `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneBossLockMsg(c, z))}</div>` : "")}
             </div>
-            <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
               ${zoneSendButton(c, z, unlocked)}
-              ${bossSendButton(c, z.boss.id, "zoneboss", bossUnlocked)}
+              ${bossSendButton(c, z.boss.id, "zoneboss", bossUnlocked, c ? zoneBossLockMsg(c, z) : "Locked")}
             </div>
           </div>
         </div>`);
     });
     const actBossUnlocked = !!(c && progressFor(c).bossUnlocked[act.actBoss.id]);
+    const actBossEverUnlocked = !!(c && progressFor(c).actBossEverUnlocked[act.n]);
     const actBossThreat = act.actBoss.threat * threatMultFor(diffKey);
     out.push(`
       <div class="stub">
         <span class="ph">Act Boss &middot; Threat ${fmt(actBossThreat)} &middot; ${actBossUnlocked ? "unlocked" : "locked"}</span>
         <div style="color:var(--parchment);font-family:var(--serif);letter-spacing:.08em">${esc(act.actBoss.name)}</div>
-        <div class="flavor" style="margin-top:4px">${esc(act.actBoss.flavor)}</div>
+        ${flavorOrHidden(actBossEverUnlocked, act.actBoss.flavor)}
         ${actBossUnlocked ? forecastHtml(c, act.actBoss.id) : (c ? `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(actBossLockMsg(c, act))}</div>` : "")}
-        <div style="margin-top:8px">${bossSendButton(c, act.actBoss.id, "actboss", actBossUnlocked)}</div>
+        <div style="margin-top:8px">${bossSendButton(c, act.actBoss.id, "actboss", actBossUnlocked, c ? actBossLockMsg(c, act) : "Locked")}</div>
       </div>`);
+    if (actCleared){
+      out.push(flavorOrHidden(true, act.closing.split("\n\n")[0], ";margin-top:14px"));
+    }
   }
   out.push(loopPolicyPanel(c));
   return out.join("");
@@ -4278,7 +4612,7 @@ function loopPolicyPanel(c){
   ].map(o => `<option value="${o.v}" ${loop.onDeath===o.v?"selected":""}>${esc(o.l)}</option>`).join("");
 
   const warn = (loop.restUntil <= loop.autoRestAt && loop.autoRestAt > 0)
-    ? `<div class="flavor" style="margin-top:8px;color:var(--crimson-br);font-style:normal">
+    ? `<div class="flavor" style="margin-top:8px;color:var(--crimson-text);font-style:normal">
          Rest-until is at or below the auto-rest trigger — resting will run to 100% instead
          so the loop can't ping-pong.</div>`
     : "";
@@ -4324,13 +4658,78 @@ function zoneSendButton(c, z, unlocked){
     return `<button class="btn" disabled title="${esc(c.name)} is not idle">${activityCaption(c)}</button>`;
   return `<button class="btn primary" onclick="A.startZoneRun('${z.id}')">Send</button>`;
 }
-/* §6b/§6e — dispatch a zone boss or act boss run. Mirrors zoneSendButton. */
-function bossSendButton(c, targetId, kind, unlocked){
+/* §6b/§6e/§16 — dispatch a zone boss or act boss run. Mirrors
+   zoneSendButton, but §16 item 5 wants the boss control ALWAYS visible and
+   clearly its own button, greyed out with its unlock requirement stated
+   (zoneBossLockMsg/actBossLockMsg) when locked, rather than absent. */
+function bossSendButton(c, targetId, kind, unlocked, lockMsg){
   if (!c) return `<button class="btn" disabled>No character</button>`;
-  if (!unlocked) return "";
+  if (!unlocked) return `<button class="btn" disabled title="${esc(lockMsg || "Locked")}">Send &middot; Locked</button>`;
   if (c.activity.type !== "idle")
     return `<button class="btn" disabled title="${esc(c.name)} is not idle">${activityCaption(c)}</button>`;
   return `<button class="btn primary" onclick="A.startBoss('${targetId}','${kind}')">Send</button>`;
+}
+
+/* §16 "what do the skills actually do" — player-facing label + sign for
+   every VALID_TREE_STATS key, so a node's explicit numeric effect line can
+   be DERIVED from its `stat` (the same key the actual *For() helper reads)
+   instead of hand-written per-node, which could drift from the mechanic.
+   `sign` is "-" for stats that read as a reduction (run duration, HP loss,
+   revive cooldown, Threat) even though the underlying number is a positive
+   percentage added into a subtraction — see runDurationMultFor/
+   classModifierFor/reviveCooldownFor/threatReductionFor. */
+const STAT_LABELS = {
+  power:           {label:"Power",              sign:"+"},
+  maxHp:           {label:"Max HP",              sign:"+"},
+  mitigation:      {label:"Mitigation",          sign:"+"},
+  bossDamage:      {label:"Boss Damage",         sign:"+"},
+  itemFind:        {label:"Item Find",           sign:"+"},
+  goldFind:        {label:"Gold Find",           sign:"+"},
+  xpGain:          {label:"XP Gain",             sign:"+"},
+  uniqueChance:    {label:"Unique Chance",       sign:"+"},
+  runSpeed:        {label:"Run Duration",        sign:"-"},
+  restRate:        {label:"Rest Rate",           sign:"+"},
+  regen:           {label:"HP Regen (idle)",     sign:"+"},
+  reviveSpeed:     {label:"Revive Cooldown",     sign:"-"},
+  hpLossReduction: {label:"HP Loss",             sign:"-"},
+  evasion:         {label:"Evasion Chance",      sign:"+"},
+  deathInsurance:  {label:"Death-Save Chance",   sign:"+"},
+  threatReduction: {label:"Threat",              sign:"-"},
+  critResist:      {label:"Crit Resistance",     sign:"+"},
+};
+// player language for the `stat` key T1/T4 capstone params name (see
+// TREES's capstone comment — a fixed set of 7 reusable mechanic shapes).
+const CAPSTONE_STAT_LABELS = {itemFind:"Item Find", xp:"XP", goldFind:"Gold Find", unique:"Unique Chance", reward:"XP and Gold"};
+function trimPct(n){ return (Math.round(n * 100) / 100).toString(); }   // drop trailing .00 noise
+/* One ranked node's explicit mechanical effect at its CURRENT rank, plus
+   what the next rank would add — §16: "show the per-rank value and the
+   current total... show what the next rank would give". */
+function treeNodeEffectText(n, rank){
+  const info = STAT_LABELS[n.stat] || {label:n.stat, sign:"+"};
+  const perRank = (n.perRank || BAL.TREE_NODE_PCT) * 100;
+  const cur = perRank * rank;
+  let s = `${info.sign}${trimPct(perRank)}% ${info.label} per rank`;
+  if (rank > 0) s += ` — currently ${info.sign}${trimPct(cur)}% ${info.label}`;
+  if (rank < BAL.TREE_NODE_MAX_RANK) s += ` (next rank: ${info.sign}${trimPct(perRank * (rank + 1))}%)`;
+  return s;
+}
+/* A capstone's full mechanical effect, explicit — §16: "capstones must
+   state their full effect explicitly, not just flavor". One branch per
+   CAPSTONE TYPE (see the TREES comment for the 7 shapes); every capstone
+   in the game is one of these seven, so this covers all 24. */
+function capstoneEffectText(def){
+  const p = def.params || {};
+  const statLbl = CAPSTONE_STAT_LABELS[p.stat] || p.stat;
+  switch (def.type){
+    case "T1": return `Survive a run at 10% HP or below: next run's ${statLbl} is multiplied ${p.mult}x (+${Math.round((p.mult - 1) * 100)}%).`;
+    case "T2": return "Once per run, a lethal blow leaves you at 1 HP instead of 0 — guaranteed (100% chance).";
+    case "T3": return `The first time HP drops below 25% in a run: +${Math.round(p.bonus * 100)}% flat Mitigation for the rest of that run.`;
+    case "T4": return `Win a boss fight: next run's XP and Gold are both multiplied ${p.mult}x (+${Math.round((p.mult - 1) * 100)}%).`;
+    case "T5": return `+${Math.round(p.bonus * 100)}% flat Mitigation for the whole run, whenever the Rested buff is active.`;
+    case "T6": return "The first tick of every run always evades (100% chance to take zero damage).";
+    case "T7": return `After any tick where HP is below 50%, heal ${trimPct(p.healPct * 100)}% of Max HP.`;
+    default:   return "";
+  }
 }
 
 /* §15.3 — one branch column: 4 ranked nodes (rank shown "n/10", locked
@@ -4350,10 +4749,10 @@ function treeBranchHtml(c, branch){
         <span style="font-family:var(--serif);letter-spacing:.06em;font-size:13px">${esc(n.name)}</span>
         <span style="color:var(--parchment-dim);font-size:12px">${rank}/${maxRank}</span>
       </div>
-      <div class="flavor" style="font-size:11px;margin-top:2px">${esc(n.desc)}
-        ${rank > 0 ? ` (+${Math.round((n.perRank || BAL.TREE_NODE_PCT) * rank * 100)}%)` : ""}</div>
+      <div style="font-size:11px;margin-top:4px;color:var(--parchment)">${esc(treeNodeEffectText(n, rank))}</div>
+      <div class="flavor" style="font-size:11px;margin-top:3px">${esc(n.desc)}</div>
       ${locked
-        ? `<div style="font-size:11px;color:var(--crimson-br);margin-top:4px">Requires ${req} points in this branch</div>`
+        ? `<div style="font-size:11px;color:var(--crimson-text);margin-top:4px">Requires ${req} points in this branch</div>`
         : `<button class="btn" style="margin-top:6px;padding:3px 10px;font-size:11px" onclick="A.allocateTreePoint('${branch}',${i})" ${canAlloc ? "" : "disabled"}>+1</button>`}
     </div>`;
   }).join("");
@@ -4367,9 +4766,10 @@ function treeBranchHtml(c, branch){
         <span style="font-family:var(--serif);letter-spacing:.06em;font-size:13px;color:var(--gold)">${esc(cap.name)}</span>
         <span style="color:var(--parchment-dim);font-size:12px">${capRank}/1</span>
       </div>
-      <div class="flavor" style="font-size:11px;margin-top:2px">${esc(cap.desc)}</div>
+      <div style="font-size:11px;margin-top:4px;color:var(--gold)">${esc(capstoneEffectText(cap))}</div>
+      <div class="flavor" style="font-size:11px;margin-top:3px">${esc(cap.desc)}</div>
       ${capLocked
-        ? `<div style="font-size:11px;color:var(--crimson-br);margin-top:4px">Requires ${BAL.TREE_TIER_REQ[4]} points in this branch</div>`
+        ? `<div style="font-size:11px;color:var(--crimson-text);margin-top:4px">Requires ${BAL.TREE_TIER_REQ[4]} points in this branch</div>`
         : capRank >= 1
           ? `<div style="font-size:11px;color:var(--gold);margin-top:4px">Unlocked</div>`
           : `<button class="btn" style="margin-top:6px;padding:3px 10px;font-size:11px" onclick="A.allocateTreePoint('${branch}',4)" ${capCan ? "" : "disabled"}>Unlock &middot; ${BAL.TREE_CAPSTONE_COST} pts</button>`}
@@ -4389,12 +4789,28 @@ function respecButtonHtml(c){
   return `<button class="btn" onclick="A.respec()" ${disabled ? "disabled" : ""}
     title="${free ? "One free respec is available this act" : "Refunds every spent point"}">${label}</button>`;
 }
-// §8.4/§15.3 Phase 10 — "surface the character's current difficulty and the
+// §16 — collapsible sections (Character tab's Difficulty/Combat & Recovery/
+// Economy & Growth/Skill Tree, Gear tab's Auto-Salvage Filter), all
+// defaulting CLOSED. Same pattern as the Quests tab's act collapse
+// (A.toggleAct/S.ui.questsOpen) — state persists on S.ui[group][key] so it
+// survives a reload. `titleHtml` may carry inline markup (e.g. the current
+// difficulty/skill-point count); `bodyFn` is only invoked when open, so
+// closed sections don't pay for the html they're not showing.
+function sectionOpen(group, key){ return !!(S.ui[group] && S.ui[group][key]); }
+function collapsibleSection(group, key, titleHtml, bodyFn){
+  const open = sectionOpen(group, key);
+  return `<h3 class="sub collapsible" onclick="A.toggleUiSection('${group}','${key}')">
+      <span>${titleHtml}</span><span class="car">${open ? "▾" : "▸"}</span>
+    </h3>
+    ${open ? bodyFn() : ""}`;
+}
+// §8.4/§15.3 — "surface the character's current difficulty and the
 // tier-switch control... with locked tiers showing their unlock requirement."
 // c.tierUnlocked is per-character (set by resolveBossAttempt on an Act V
 // boss win); Normal is always available. Switching only from idle — see
-// A.switchDifficulty.
-function difficultyPanelHtml(c){
+// A.switchDifficulty. Split header/body so panelChar can wrap the body in
+// the collapsible-section pattern above.
+function difficultyBodyHtml(c){
   const idle = c.activity.type === "idle";
   const buttons = ["normal", "nightmare", "inferno"].map(tier => {
     const diff = BAL.DIFFICULTY[tier];
@@ -4409,8 +4825,7 @@ function difficultyPanelHtml(c){
       title="${idle ? `Re-runs Acts I-V from the start on ${label} (progress on each tier is kept separately)` : "Must be idle to switch"}">Switch to ${label}</button>`;
   }).join(" ");
   const cur = BAL.DIFFICULTY[c.difficulty];
-  return `<h3 class="sub" style="margin-top:0">Difficulty &middot; <span style="color:var(--gold)">${c.difficulty[0].toUpperCase()}${c.difficulty.slice(1)}</span></h3>
-    <div class="stub" style="margin-bottom:14px">
+  return `<div class="stub" style="margin-bottom:14px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${buttons}</div>
       <div class="flavor" style="margin-top:8px;font-style:normal;font-size:12px">
         Threat &times;${cur.threatMult} &middot; Gear Power &times;${cur.mult}${cur.tag ? ` &middot; drops tagged <b style="color:var(--gold)">${cur.tag}</b>` : ""}
@@ -4428,7 +4843,9 @@ function panelChar(){
       <span class="ph">Innate Passive &middot; ${cls.passive}</span>
       <div class="flavor" style="font-style:normal">${esc(cls.desc)}</div>
     </div>
-    ${difficultyPanelHtml(c)}
+    ${collapsibleSection("charOpen", "difficulty",
+      `Difficulty &middot; <span style="color:var(--gold)">${c.difficulty[0].toUpperCase()}${c.difficulty.slice(1)}</span>`,
+      () => difficultyBodyHtml(c))}
     <h3 class="sub">Power Breakdown</h3>
     <div class="statline" style="margin-bottom:14px">
       <span>Base <b>${b.base}</b></span>
@@ -4437,40 +4854,81 @@ function panelChar(){
       <span>Tree <b>+${Math.round(b.treePct * 100)}%</b></span>
       <span>Total <b>${fmt(Calc.power(c))}</b></span>
     </div>
-    <h3 class="sub">Combat &amp; Recovery (gear + passive + tree, combined)</h3>
-    <div class="statline" style="margin-bottom:14px">
-      <span>Max HP <b>${fmt(Calc.maxHP(c))}</b></span>
-      <span>Mitigation <b>${Math.round(mitigationFor(c) * 100)}%</b></span>
-      <span>Evasion <b>${Math.round(evasionChanceFor(c) * 100)}%</b></span>
-      <span>Crit Chance (incoming) <b>${(critChanceFor(c) * 100).toFixed(1)}%</b>${c.cls === "paladin" ? ` <span style="color:var(--gold)">(immune below 50% HP)</span>` : ""}</span>
-      <span>Death Insurance <b>${Math.round(deathInsuranceChanceFor(c) * 100)}%</b></span>
-      <span>HP Loss Modifier <b>${classModifierFor(c) >= 1 ? "+" : ""}${Math.round((classModifierFor(c) - 1) * 100)}%</b></span>
-      <span>Threat Reduction <b>${Math.round(threatReductionFor(c) * 100)}%</b></span>
-      <span>Boss Effective Threat <b>-${Math.round(bossDamageFor(c) * 100)}%</b></span>
-      <span>HP Regen (idle) <b>${(regenRateFor(c) * 100).toFixed(0)}%/hr</b></span>
-      <span>Rest Rate <b>${(restRateFor(c) * 100).toFixed(0)}%/hr</b></span>
-      <span>Revive Cooldown <b>${fmtDur(reviveCooldownFor(c))}</b></span>
-    </div>
-    <h3 class="sub">Economy &amp; Growth (gear + passive + tree, combined)</h3>
-    <div class="statline" style="margin-bottom:14px">
-      <span>Item Find <b>+${Math.round((itemFindFor(c) - (c.buffs.rested ? 1 + restedBuffFor(c) : 1)) * 100)}%</b></span>
-      <span>Gold Find <b>+${Math.round((goldFindFor(c) - 1) * 100)}%</b></span>
-      <span>XP Gain <b>+${Math.round((xpGainFor(c) - 1) * 100)}%</b></span>
-      <span>Unique Chance <b>+${Math.round(uniqueChanceFor(c) * 100)}%</b></span>
-      <span>Run Duration <b>-${Math.round((1 - runDurationMultFor(c)) * 100)}%</b></span>
-    </div>
-    <h3 class="sub">Skill Tree <span style="color:var(--gold)">&middot; ${c.skillPoints} point${c.skillPoints === 1 ? "" : "s"} available</span></h3>
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">
-      ${treeBranchHtml(c, "A")}${treeBranchHtml(c, "B")}${treeBranchHtml(c, "C")}
-    </div>
-    ${respecButtonHtml(c)}
-    <button class="btn" style="margin-left:10px;border-color:var(--danger);color:var(--parchment-dim)"
+    ${collapsibleSection("charOpen", "combat", "Combat &amp; Recovery (gear + passive + tree, combined)", () => `
+      <div class="statline" style="margin-bottom:14px">
+        <span>Max HP <b>${fmt(Calc.maxHP(c))}</b></span>
+        <span>Mitigation <b>${Math.round(mitigationFor(c) * 100)}%</b></span>
+        <span>Evasion <b>${Math.round(evasionChanceFor(c) * 100)}%</b></span>
+        <span>Crit Chance (incoming) <b>${(critChanceFor(c) * 100).toFixed(1)}%</b>${c.cls === "paladin" ? ` <span style="color:var(--gold)">(immune below 50% HP)</span>` : ""}</span>
+        <span>Death Insurance <b>${Math.round(deathInsuranceChanceFor(c) * 100)}%</b></span>
+        <span>HP Loss Modifier <b>${classModifierFor(c) >= 1 ? "+" : ""}${Math.round((classModifierFor(c) - 1) * 100)}%</b></span>
+        <span>Threat Reduction <b>${Math.round(threatReductionFor(c) * 100)}%</b></span>
+        <span>Boss Effective Threat <b>-${Math.round(bossDamageFor(c) * 100)}%</b></span>
+        <span>HP Regen (idle) <b>${(regenRateFor(c) * 100).toFixed(0)}%/hr</b></span>
+        <span>Rest Rate <b>${(restRateFor(c) * 100).toFixed(0)}%/hr</b></span>
+        <span>Revive Cooldown <b>${fmtDur(reviveCooldownFor(c))}</b></span>
+      </div>`)}
+    ${collapsibleSection("charOpen", "economy", "Economy &amp; Growth (gear + passive + tree, combined)", () => `
+      <div class="statline" style="margin-bottom:14px">
+        <span>Item Find <b>+${Math.round((itemFindFor(c) - (c.buffs.rested ? 1 + restedBuffFor(c) : 1)) * 100)}%</b></span>
+        <span>Gold Find <b>+${Math.round((goldFindFor(c) - 1) * 100)}%</b></span>
+        <span>XP Gain <b>+${Math.round((xpGainFor(c) - 1) * 100)}%</b></span>
+        <span>Unique Chance <b>+${Math.round(uniqueChanceFor(c) * 100)}%</b></span>
+        <span>Run Duration <b>-${Math.round((1 - runDurationMultFor(c)) * 100)}%</b></span>
+      </div>`)}
+    ${collapsibleSection("charOpen", "tree",
+      `Skill Tree <span style="color:var(--gold)">&middot; ${c.skillPoints} point${c.skillPoints === 1 ? "" : "s"} available</span>`,
+      () => `
+      <div data-tree-branches style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">
+        ${treeBranchHtml(c, "A")}${treeBranchHtml(c, "B")}${treeBranchHtml(c, "C")}
+      </div>
+      ${respecButtonHtml(c)}`)}
+    <button class="btn" style="margin-top:14px;margin-left:0;border-color:var(--danger);color:var(--parchment-dim)"
       onclick="A.openRetireChar()" title="Permanent — grants Renown, sends gear and inventory to the vault">
       Retire ${esc(c.name)}</button>`;
 }
 
 /* §15.3/§9 — three equipped slots, inventory grid, and the clan vault.
    Quality border colour comes straight from the --q-* CSS vars. */
+/* §16 readability pass (3) — quick compare number for unequipped gear
+   (character inventory AND clan vault, always vs. the CURRENTLY SELECTED
+   character `c`). The honest delta simulates the swap through the SAME
+   Calc.power/Calc.maxHP derived-stat path the rest of the file reads —
+   never a raw item.power diff, which would miss +Power%/+Max HP% affixes
+   and set-bonus interactions (a lower-power item with a good affix can be
+   a net upgrade — see report's hand-computed verification case).
+   Never mutates `c` and never triggers a save/render: builds ONE throwaway
+   object per call carrying a shallow-copied c.gear (existing item refs
+   reused, only the target slot swapped) and evaluates Calc against THAT —
+   c.gear itself, and c.tree/c.buffs (reused by reference, never written),
+   are untouched. Cheap — Calc.power/maxHP only walk 3 gear slots + the
+   tree, the same cost panelChar already pays every render, so this is
+   safe to call per-card on a 90-item inventory or 250-item vault. */
+function gearDeltaFor(c, it){
+  if (!c) return null;
+  if (it.req > c.level) return {overLevel:true};   // can't equip — a delta here would be misleading
+  const eq = c.gear[it.slot];
+  const swapped = {level:c.level, cls:c.cls, tree:c.tree, gear:Object.assign({}, c.gear, {[it.slot]: it})};
+  return {
+    empty: !eq,
+    dPower: Calc.power(swapped) - Calc.power(c),
+    dMaxHP: Calc.maxHP(swapped) - Calc.maxHP(c),
+  };
+}
+function deltaSpan(d){
+  const color = d > 0 ? "var(--upgrade)" : d < 0 ? "var(--crimson-text)" : "var(--parchment-dim)";
+  return `<span style="color:${color}">${d > 0 ? "+" : ""}${fmt(d)}</span>`;
+}
+function gearDeltaHtml(c, it){
+  const d = gearDeltaFor(c, it);
+  if (!d) return "";
+  if (d.overLevel){
+    return `<div style="font-size:11px;color:var(--crimson-text);margin-bottom:6px">Requires level ${it.req} to equip &mdash; no comparison</div>`;
+  }
+  return `<div style="font-size:11px;color:var(--parchment-dim);margin-bottom:6px">
+    ${d.empty ? "vs. empty slot &middot; " : ""}&Delta; Power ${deltaSpan(d.dPower)} &middot; &Delta; Max HP ${deltaSpan(d.dMaxHP)}
+  </div>`;
+}
 function itemCardInner(c, it, mode){
   // mode: "equipped" | "inventory" | "vault"
   const q = qualityLabel(it);   // §8.4 Phase 10 — Ancient/Mythic tag, if any
@@ -4510,8 +4968,9 @@ function itemCardInner(c, it, mode){
   return `
     <div style="font-family:var(--serif);letter-spacing:.06em;color:var(--parchment)">${esc(it.name)}</div>
     <div class="flavor" style="font-style:normal;font-size:12px;margin:4px 0 6px">
-      ${q} ${it.slot} &middot; Power ${fmt(it.power)} &middot; Req Lv ${it.req}${overLevel ? ` <span style="color:var(--crimson-br)">(too high)</span>` : ""}
+      ${q} ${it.slot} &middot; Power ${fmt(it.power)} &middot; Req Lv ${it.req}${overLevel ? ` <span style="color:var(--crimson-text)">(too high)</span>` : ""}
     </div>
+    ${mode !== "equipped" ? gearDeltaHtml(c, it) : ""}
     ${affixTxt ? `<div style="font-size:12px;color:var(--gold);margin-bottom:8px">${esc(affixTxt)}</div>` : ""}
     <div style="display:flex;gap:6px;flex-wrap:wrap">${actions}</div>`;
 }
@@ -4521,20 +4980,20 @@ function itemCard(c, it, mode){
     ${it ? itemCardInner(c, it, mode) : `<div class="flavor">Empty</div>`}
   </div>`;
 }
-/* §9.7/§11 — auto-salvage filter config (§16 Phase 11). Each of the 3 rules
-   is gated behind its own Archive tier (see shouldAutoSalvage's header
-   comment for the §11/§9.7 resolution) — the control is disabled, not
-   hidden, when its tier isn't met, so the requirement is always visible. */
-function salvagePanelHtml(c){
+/* §9.7/§11 — auto-salvage filter config. Each of the 3 rules is gated
+   behind its own Archive tier (see shouldAutoSalvage's header comment for
+   the §11/§9.7 resolution) — the control is disabled, not hidden, when its
+   tier isn't met, so the requirement is always visible. §16 — collapsible,
+   default closed (see collapsibleSection). */
+function salvageBodyHtml(c){
   const tier = S.hall.archive || 0;
   const salv = c.salvage || {sellAtOrBelow:"off", sellBelowLevels:0, sellBelowEquipped:false};
   const qOpts = BAL.SALVAGE_QUALITY_OPTIONS.map(q =>
     `<option value="${q}" ${salv.sellAtOrBelow === q ? "selected" : ""}>${q === "off" ? "Off" : q[0].toUpperCase() + q.slice(1)}</option>`).join("");
   const lvlOpts = BAL.SALVAGE_LEVEL_OPTIONS.map(v =>
     `<option value="${v}" ${salv.sellBelowLevels === v ? "selected" : ""}>${v === 0 ? "Off" : v + "+ levels below"}</option>`).join("");
-  const gateNote = (need) => tier < need ? `<span style="color:var(--crimson-br)"> (Archive tier ${need} required)</span>` : "";
-  return `<h3 class="sub">Auto-Salvage Filter</h3>
-    <div class="stub">
+  const gateNote = (need) => tier < need ? `<span style="color:var(--crimson-text)"> (Archive tier ${need} required)</span>` : "";
+  return `<div class="stub">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
         <label style="display:block">
           <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Auto-sell at or below quality${gateNote(1)}</div>
@@ -4578,9 +5037,9 @@ function panelGear(){
     </div>
     <h3 class="sub">Inventory (${c.inventory.length} / ${invCap})</h3>
     ${invGrid}
-    <div class="flavor" style="margin-top:14px">The clan vault (${S.vault.length} / ${vaultCap}) moved to the
-      Clan Hall tab in Phase 9 (§15.3) — shared storage lives with the rest of the clan's holdings.</div>
-    ${salvagePanelHtml(c)}`;
+    <div class="flavor" style="margin-top:14px">The clan vault (${S.vault.length} / ${vaultCap}) is in the
+      Clan Hall tab — shared storage lives with the rest of the clan's holdings.</div>
+    ${collapsibleSection("gearOpen", "salvage", "Auto-Salvage Filter", () => salvageBodyHtml(c))}`;
 }
 
 /* ==================================================================
@@ -4620,7 +5079,7 @@ function cinderMarketHtml(){
   return `<div class="stub" style="margin-bottom:16px">
     <span class="ph">The Cinder Market</span>
     <div class="flavor" style="font-style:normal">What the road gives up, Emberhold sells back. Six pieces, turned over by the hour.</div>
-    <div style="font-size:12px;color:var(--parchment-dim);margin-top:6px">Refreshes in ${fmtDur(msLeft)}</div>
+    <div style="font-size:12px;color:var(--parchment-dim);margin-top:6px">Refreshes in <span id="marketRefreshTxt">${fmtDur(msLeft)}</span></div>
     ${stockHtml}
   </div>`;
 }
@@ -4661,7 +5120,7 @@ function forgeHtml(c){
   const afford = S.gold >= cost;
   const roomy = c.inventory.length < invCapFor(c);
   const slotBtns = ["weapon", "armor", "relic"].map(s =>
-    `<button class="btn ${townUi.forgeSlot === s ? "primary" : ""}" onclick="A.setForgeSlot('${s}')">${s[0].toUpperCase() + s.slice(1)}</button>`
+    `<button class="btn ${townUi.forgeSlot === s ? "slotsel" : ""}" onclick="A.setForgeSlot('${s}')">${s[0].toUpperCase() + s.slice(1)}</button>`
   ).join(" ");
   const disabled = !afford || !roomy;
   const title = !roomy ? "Inventory full" : !afford ? "Not enough gold" : "Craft";
@@ -4683,7 +5142,7 @@ function mysticHtml(c){
   const cost = c.level * c.level * BAL.MYSTIC_GOLD_MULT;
   const afford = S.gold >= cost;
   const statusHtml = mysticActive(c)
-    ? `<div style="font-size:12px;color:var(--gold);margin-top:6px">${esc(BAL.MYSTIC_BUFFS[c.buffs.mystic.key].label)} &middot; ${fmtDur(c.buffs.mystic.expiresAt - Date.now())} remaining</div>`
+    ? `<div style="font-size:12px;color:var(--gold);margin-top:6px">${esc(BAL.MYSTIC_BUFFS[c.buffs.mystic.key].label)} &middot; <span id="mysticRemainingTxt">${fmtDur(c.buffs.mystic.expiresAt - Date.now())}</span> remaining</div>`
     : "";
   return `<div class="stub">
     <span class="ph">The Mystic &middot; Sable, the Nine-Eyed</span>
@@ -4743,7 +5202,7 @@ function milestoneProgressHtml(){
 function milestoneListHtml(){
   return MILESTONES.map(m => {
     const reached = S.renown >= m.renown;
-    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;
+    return `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;padding:4px 0;
         ${reached ? "" : "opacity:.5"}">
       <span>${fmt(m.renown)} Renown</span>
       <span style="color:${reached ? "var(--gold)" : "var(--parchment-dim)"}">${esc(m.label)}${reached ? " ✓" : ""}</span>
@@ -4759,7 +5218,7 @@ function facilityCardHtml(key){
   const cost = maxed ? null : facilityTierCost(key, tier + 1);
   const afford = !maxed && S.gold >= cost;
   return `<div class="stub">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 8px">
       <span style="font-family:var(--serif);letter-spacing:.08em;color:var(--parchment)">${esc(fac.name)}</span>
       <span style="color:var(--parchment-dim);font-size:12px">${tier} / ${fac.tiers}</span>
     </div>
@@ -4779,7 +5238,7 @@ function achievementRowHtml(ach){
   const pct = ach.target > 0 ? (cur / ach.target) * 100 : (done ? 100 : 0);
   const rewardTxt = ach.classKey ? `Class: ${CLASSES[ach.classKey].name}` : `${fmt(ach.renown)} Renown`;
   return `<div class="stub" style="margin-bottom:8px${done ? ";border-color:var(--gold)" : ""}">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 8px">
       <span style="font-family:var(--serif);letter-spacing:.06em;color:${done ? "var(--gold)" : "var(--parchment)"}">${esc(ach.name)}${done ? " ✓" : ""}</span>
       <span style="color:var(--parchment-dim);font-size:11px">${rewardTxt}</span>
     </div>
@@ -4887,6 +5346,15 @@ const A = {
       S.ui.questsOpen = S.ui.questsOpen || {};
       const cur = S.ui.questsOpen.hasOwnProperty(n) ? S.ui.questsOpen[n] : (n === currentActFor(activeChar()));
       S.ui.questsOpen[n] = !cur;
+    });
+  },
+  /* §16 — generic collapsible-section toggle for the Character tab's 4
+     sections and the Gear tab's salvage filter (see collapsibleSection).
+     Same persist-on-S.ui pattern as toggleAct above. */
+  toggleUiSection(group, key){
+    mutate(() => {
+      S.ui[group] = S.ui[group] || {};
+      S.ui[group][key] = !S.ui[group][key];
     });
   },
 
@@ -5449,10 +5917,14 @@ function finishBoot(had, now, elapsed){
   render();
   if (pendingDigest) buildAndShowDigest(pendingDigest.pre, pendingDigest.drops, pendingDigest.elapsed, pendingDigest.achievements);
 
-  // live loop — 1000ms, wall-clock driven (§2)
+  // live loop — 1000ms, wall-clock driven (§2). §16 root-cause fix: only
+  // rebuild the whole UI (render(), which tears down and rebuilds #panel)
+  // when Engine.advanceTo() actually stepped something; otherwise patch
+  // just the live-updating numbers in place (renderLive()) so open <select>s
+  // and scrolled lists inside #panel are never touched by the tick clock.
   setInterval(() => {
-    Engine.advanceTo(Date.now());
-    render();
+    const steps = Engine.advanceTo(Date.now());
+    if (steps > 0) render(); else renderLive();
   }, 1000);
 
   // save cadence — every 10s plus on unload (§2)
@@ -5469,7 +5941,7 @@ window.DW = {
   get S(){ return S; },
   set S(v){ S = v; },
   BAL, CLASSES, ACTS, Calc, Engine, A, Items,
-  save, load, render, mutate, newCharacter, chronicle,
+  save, load, render, renderLive, mutate, newCharacter, chronicle,
   findContent, simDamage, simProgression, benchXpSpans,
   forecastFor, riskBand, regenRateFor, restRateFor, reviveCooldownFor,
   restedXpMultFor, itemFindFor, mitigationFor, critChanceFor,
