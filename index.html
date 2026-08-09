@@ -4684,10 +4684,17 @@ function panelQuests(){
       const bossThreat = z.threat * 1.4 * threatMultFor(diffKey);
       out.push(`
         <div class="stub" style="margin-bottom:10px${unlocked ? "" : ";opacity:.5"}">
-          <span class="ph">Zone ${z.id.slice(1)} &middot; Threat ${fmt(zoneThreat)} &middot; Levels ${bandLo}–${bandHi} &middot; ilvl ${ilvl}</span>
-          <div style="color:var(--parchment);font-family:var(--serif);letter-spacing:.08em">${esc(z.name)}</div>
-          ${flavorOrHidden(unlocked, z.flavor)}
-          ${unlocked ? forecastHtml(c, z.id) : `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneLockMsg(act, z))}</div>`}
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <span class="ph">Zone ${z.id.slice(1)} &middot; Threat ${fmt(zoneThreat)} &middot; Levels ${bandLo}–${bandHi} &middot; ilvl ${ilvl}</span>
+              <div style="color:var(--parchment);font-family:var(--serif);letter-spacing:.08em">${esc(z.name)}</div>
+              ${flavorOrHidden(unlocked, z.flavor)}
+              ${unlocked ? forecastHtml(c, z.id) : `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneLockMsg(act, z))}</div>`}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+              ${zoneSendButton(c, z, unlocked)}
+            </div>
+          </div>
           <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:220px">
               <span class="ph" style="margin:0">Zone Boss &middot; Threat ${fmt(bossThreat)} &middot; ${bossUnlocked ? "unlocked" : "locked"}</span>
@@ -4696,7 +4703,6 @@ function panelQuests(){
               ${bossUnlocked ? forecastHtml(c, z.boss.id) : (c ? `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneBossLockMsg(c, z))}</div>` : "")}
             </div>
             <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-              ${zoneSendButton(c, z, unlocked)}
               ${bossSendButton(c, z.boss.id, "zoneboss", bossUnlocked, c ? zoneBossLockMsg(c, z) : "Locked")}
             </div>
           </div>
