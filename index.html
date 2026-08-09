@@ -189,6 +189,17 @@ h3.sub.collapsible .car{font-size:11px;color:var(--parchment-dim)}
    cards WITH an item get this class. */
 .item-card{border-style:solid;border-width:2px}
 
+/* §16 Quests tab rework — collapsible zone/zone-boss/act-boss rows
+   (questRowHtml). Row itself is the always-visible "collapsed" state; hover
+   just brightens the caret since the row has no other persistent affordance.
+   Flex-wrap keeps it from overflowing at phone widths (375px) without a
+   separate mobile rule. */
+.q-row:hover .car{color:var(--parchment)}
+/* Visual separator between Acts (1c) — plain gradient rule, no glyph, so it
+   can't clash with the serif/letter-spaced headings around it. */
+.act-divider{height:1px;margin:26px 0;
+  background:linear-gradient(90deg,transparent,var(--line) 12%,var(--line) 88%,transparent)}
+
 /* ---------- chronicle (§15.5) ---------- */
 .chronicle{
   margin-top:22px;background:var(--bg-panel);border:1px solid var(--line);
@@ -593,6 +604,44 @@ const BAL = {
   MARKET_BUY_MARKUP: 3,
   MARKET_STOCK_SIZE: 6,
   MARKET_REFRESH_MS: 3600 * 1000,
+  // §13/§17 — the Market's OWN quality-weight table, scaled by clan
+  // progress. Before this it reused BAL.QUALITY's zone column outright
+  // (Items.rollQuality(false, true)), which put Legendary buy-able gear on
+  // the shelf ~hourly from Act I onward — see report: measured 4.52%
+  // Legendary share and a buy price under one run's income, making zone
+  // Legendary drops (the actual reward for playing) irrelevant.
+  //
+  // Common/Magic weights don't ramp — only Rare/Legendary do, pulled up from
+  // `wEarly` toward `wLate` as clan progress rises, via progress^exp (a
+  // higher exp = flatter for longer, then a faster catch-up; Legendary's 3.2
+  // vs Rare's 1.6 is why Legendary lags Rare into relevance the way the
+  // report asked for). `wLate` is deliberately set to the OLD reused-zone
+  // numbers (BAL.QUALITY.rare/legendary.wZone) so a fully-progressed clan's
+  // market still converges on "today" — see rollMarketQuality. Never
+  // includes set/unique — the doc's "never sells Set or Unique" is
+  // structural here (the keys just don't exist), not a filtered-out roll.
+  MARKET_QUALITY: {
+    common:    {w: 50},
+    magic:     {w: 30},
+    rare:      {wEarly: 3,    wLate: 15,  exp: 1.6},
+    legendary: {wEarly: 0.05, wLate: 4.5, exp: 3.2},
+  },
+  // Progress fraction (0-1) for MARKET_QUALITY's ramp = ref character's
+  // level / this cap. 99 = BAL.DIFFICULTY.inferno.topLevel (can't reference
+  // that here — same object literal — see the INFERNO_ACT_BANDS comment for
+  // why hardcoding the top level is the established pattern in this file).
+  MARKET_PROGRESS_CAP: 99,
+  // §13/§17 — rarity price premium, ON TOP of the existing power-driven
+  // price (Items.sellValue already scales with power, which scales with
+  // BAL.QUALITY[quality].mult — but that ratio alone is only 2.2x common-to-
+  // legendary, so today a Legendary costs about the same multiple of a
+  // Common's price as it outputs in extra Power, no separate "rarity" cost
+  // at all). This multiplies buyPrice by quality, with the PER-TIER RATIO
+  // itself increasing (1.5x, then 2x, then 3x) — deliberately convex/
+  // superlinear, not a flat percentage each step, so Legendary lands at
+  // "many runs of income" instead of Rare's "a few". See report for the
+  // measured runs-of-income table across progression.
+  MARKET_RARITY_PREMIUM: {common: 1, magic: 1.5, rare: 3.5, legendary: 12},
   // §13 Vardun's Forge — cost level^2 x 25. Quality weights are the doc's
   // own table verbatim (distinct from the zone/boss drop weights in
   // BAL.QUALITY) — Items.rollForgeQuality() excludes Set/Unique and
@@ -1933,6 +1982,13 @@ function newState(){
     // collapsible sections (collapsibleSection/A.toggleUiSection), all
     // defaulting CLOSED per the brief. Same persistence pattern as
     // questsOpen — lives on S.ui so it survives a reload.
+    // §16 Quests rework — questsOpen now double-duties as two keyspaces on
+    // the SAME object: act numbers (1-5, written by A.toggleAct, defaults to
+    // the current act open) and zone/boss ids ("z1".."z15"/"b1".."b15"/
+    // "a1".."a5", written by the generic A.toggleUiSection('questsOpen', id)
+    // like every other tab's sections, defaults CLOSED). No collision — acts
+    // key by number, everything else by string id — see questRowHtml/
+    // zoneBlockHtml/actBossBlockHtml.
     ui: {tab:"quests", questsOpen:{},
       charOpen: {difficulty:false, combat:false, economy:false, tree:false},
       gearOpen: {salvage:false},
@@ -2545,6 +2601,35 @@ const Items = {
     }
     return keys[keys.length - 1];
   },
+  // §13/§17 — the Cinder Market's own quality roll (BAL.MARKET_QUALITY, NOT
+  // BAL.QUALITY's zone/boss columns — see that constant's comment). `refLevel`
+  // is the highest-level living character's level (Engine.rollMarketStock's
+  // `ref`, same signal §13 already scales stock to); Rare/Legendary weights
+  // ramp toward their late-game ceiling as refLevel climbs toward
+  // BAL.MARKET_PROGRESS_CAP. Set/Unique are never candidates — the keys list
+  // below is exhaustive, not filtered, so "never sells Set or Unique" holds
+  // structurally rather than by an excludeSpecial flag (contrast
+  // Items.rollQuality, whose zone/boss table DOES carry set/unique weights
+  // that must be filtered per-call).
+  rollMarketQuality(refLevel){
+    const q = BAL.MARKET_QUALITY;
+    const p = clamp((refLevel || 1) / BAL.MARKET_PROGRESS_CAP, 0, 1);
+    const weights = {
+      common: q.common.w,
+      magic: q.magic.w,
+      rare: q.rare.wEarly + (q.rare.wLate - q.rare.wEarly) * Math.pow(p, q.rare.exp),
+      legendary: q.legendary.wEarly + (q.legendary.wLate - q.legendary.wEarly) * Math.pow(p, q.legendary.exp),
+    };
+    const keys = ["common", "magic", "rare", "legendary"];
+    let total = 0;
+    for (const k of keys) total += weights[k];
+    let r = Math.random() * total;
+    for (const k of keys){
+      r -= weights[k];
+      if (r <= 0) return k;
+    }
+    return keys[keys.length - 1];
+  },
   // §9.5 Phase 11 — "75% chance the unique rolls for the finding
   // character's own class, 25% for another unlocked class." `foundByCls`
   // is the finding/crafting character's class; `forceOwnClass` (Vardun's
@@ -2619,8 +2704,11 @@ const Items = {
   },
   // `foundByCls` (Phase 11, optional) is the finding character's class —
   // needed for the unique 75/25 own-class bias. `excludeSpecial` (Phase 11,
-  // optional) forces the roll away from Set/Unique entirely — see
-  // Engine.rollMarketStock, the one caller that needs it.
+  // optional) forces the roll away from Set/Unique entirely. §17 — no
+  // current caller passes excludeSpecial (Engine.rollMarketStock moved to
+  // its own Items.rollMarketQuality/Items.build path, which excludes Set/
+  // Unique structurally instead); kept as a general-purpose option on this
+  // shared roll rather than removed.
   generate(itemLevel, difficulty, isBoss, foundByCls, excludeSpecial){
     return Items.build(itemLevel, difficulty, Items.rollSlot(), Items.rollQuality(isBoss, excludeSpecial), {foundByCls});
   },
@@ -3214,12 +3302,19 @@ const Engine = {
     const stock = [];
     for (let i = 0; i < BAL.MARKET_STOCK_SIZE; i++){
       const difficulty = tiers[Math.floor(Math.random() * tiers.length)];
-      // §13 "Never sells Set or Unique" — excludeSpecial:true forces
-      // rollQuality away from both regardless of the Phase 11 drop-weight
-      // enable; isBoss:false uses the zone drop-weight column (no doc
-      // guidance either way for the Market specifically).
-      const item = Items.generate(ref.level, difficulty, false, null, true);
-      item.buyPrice = Math.round(Items.sellValue(item) * BAL.MARKET_BUY_MARKUP);
+      // §13/§17 "Never sells Set or Unique" — Items.rollMarketQuality's key
+      // list structurally excludes both (see that function's comment), so
+      // this no longer needs Items.generate's excludeSpecial flag; it also
+      // no longer reuses the zone drop-weight column (isBoss:false) at all —
+      // Vardun's/gate progression now drives Market quality on its own
+      // curve. Built directly via Items.build (Items.generate's own body,
+      // minus the rollQuality call) since the quality roll comes from a
+      // different table now.
+      const item = Items.build(ref.level, difficulty, Items.rollSlot(), Items.rollMarketQuality(ref.level));
+      // §17 — rarity premium ON TOP of the existing power-driven sell value
+      // (BAL.MARKET_RARITY_PREMIUM; see report for the measured runs-of-
+      // income table this produces across progression).
+      item.buyPrice = Math.round(Items.sellValue(item) * BAL.MARKET_BUY_MARKUP * BAL.MARKET_RARITY_PREMIUM[item.quality]);
       stock.push(item);
     }
     return stock;
@@ -4620,7 +4715,6 @@ function renderPanel(){
   }[S.ui.tab] || panelQuests)();
 }
 
-/* §15.3 — acts collapsible, zone bosses adjacent to their zone */
 /* §8.2 lock-message helpers — locked content states its unlock requirement
    explicitly (§15.3/§6f), computed from the same counters the unlock logic
    itself uses so the two can never drift apart. */
@@ -4643,9 +4737,20 @@ function actBossLockMsg(c, act){
   return `Defeat ${remaining} more zone boss${remaining === 1 ? "" : "es"}.`;
 }
 
-/* §15.3 — acts collapsible, zone bosses adjacent to their zone. §6f: default
-   to expanding only the current act (currentActFor) — everything else opens
-   on click and the choice persists in S.ui.questsOpen (per-act override). */
+/* §15.3/§16 Quests tab rework — acts stay collapsible exactly as before
+   (toggleAct/currentActFor, defaults to the current act open). NEW this
+   pass: zones, zone bosses and act bosses are each their OWN collapsible
+   row too, reusing the existing generic A.toggleUiSection('questsOpen', id)
+   handler (sectionOpen() already defaults an unseen key to false, so these
+   default CLOSED per the brief — unlike the act-level override above, which
+   defaults to the current act open). The owner's complaint was "a wall of
+   text"; the fix is that the ROW itself (questRowHtml) carries everything
+   needed to scan and act — number/name/Threat/band or lock-progress, a
+   Ready/Busy/Locked chip, and a working Send button — while flavor/forecast/
+   reward-estimate only get built for whatever is actually open. That's also
+   the §16 perf fix: forecastFor (Monte Carlo, FORECAST_TRIALS=4000) and
+   rewardEstimateFor no longer run for the ~35 entries unconditionally on
+   every render, only for open ones. See report for before/after timing. */
 // §16 (§6) — zone/zone-boss/act-boss flavor prose (and act opening/closing
 // text) stays hidden until that content has been unlocked at least once,
 // then stays revealed permanently — even once a boss relocks. `revealed`
@@ -4655,6 +4760,101 @@ function actBossLockMsg(c, act){
 function flavorOrHidden(revealed, text, extraStyle){
   return `<div class="flavor" style="margin-top:4px${extraStyle || ""}">${revealed ? esc(text) : "Unknown."}</div>`;
 }
+function lockMsgHtml(msg){
+  return `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(msg)}</div>`;
+}
+/* §16f — a compact "can I act on this right now" chip for the collapsed row.
+   Deliberately NOT a risk band off forecastFor: bucketing the Monte Carlo
+   result would mean running it for every collapsed entry, which is exactly
+   the cost this pass removes (see panelQuests comment / report). Ready/Busy/
+   Locked reads straight off state that's already free — progressFor's
+   unlock flags and c.activity.type — so it's safe on every render. */
+function questChip(label, color){
+  return `<span style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    padding:2px 8px;border-radius:var(--r-pill);border:1px solid ${color};color:${color};white-space:nowrap">${label}</span>`;
+}
+function questStatusChip(c, unlocked){
+  if (!c) return "";
+  if (!unlocked) return questChip("Locked", "var(--parchment-dim)");
+  if (c.activity.type !== "idle") return questChip("Busy", "var(--parchment-dim)");
+  return questChip("Ready", "var(--upgrade)");
+}
+/* §16 — one collapsible row: zone, zone boss, or act boss. The header is
+   ALWAYS rendered (name/Threat/extra/status/Send) regardless of open state —
+   1a/1b require the Send button to work straight off the collapsed row, so
+   it can never live inside the collapsible body. `extra` carries the level
+   band for a zone, or the unlock-progress text for a boss — zoneBossLockMsg/
+   actBossLockMsg are already O(1) counter reads, so showing the real
+   "clear it N more times" text instead of a bare "locked" is free and tells
+   the player what to do next without expanding (1d/§8.2). `isLoop` flags
+   the entry the loop policy is currently targeting (owner's suggestion —
+   one id comparison, effectively free). The actions cell stops propagation
+   so clicking Send doesn't also toggle the row. */
+function questRowHtml(key, label, name, threat, extra, statusChip, sendBtnHtml, isLoop, dim){
+  const open = sectionOpen("questsOpen", key);
+  return `<div class="q-row" style="cursor:pointer;display:flex;justify-content:space-between;
+      align-items:center;gap:10px;flex-wrap:wrap;user-select:none${dim ? ";opacity:.55" : ""}" onclick="A.toggleUiSection('questsOpen','${key}')">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0;flex:1">
+      <span class="car" style="font-size:11px;color:var(--parchment-dim)">${open ? "▾" : "▸"}</span>
+      <span class="ph" style="margin:0">${esc(label)}</span>
+      <span style="font-family:var(--serif);letter-spacing:.06em;color:var(--parchment)">${esc(name)}${isLoop ? ` <span style="color:var(--crimson-text);font-size:11px" title="Current loop target">&#9670;</span>` : ""}</span>
+      <span style="font-size:12px;color:var(--parchment-dim)">Threat ${fmt(threat)} &middot; ${esc(extra)}</span>
+      ${statusChip}
+    </div>
+    <div onclick="event.stopPropagation()">${sendBtnHtml}</div>
+  </div>`;
+}
+/* One zone plus its adjacent zone boss (§15.3 "zone bosses adjacent to
+   their zone") — independently collapsible per 1b, kept in the same .stub
+   card so the adjacency reads visually even though each row toggles alone. */
+function zoneBlockHtml(c, act, z, diffKey){
+  const unlocked = !!(c && progressFor(c).zoneUnlocked[z.id]);
+  const bossUnlocked = !!(c && progressFor(c).bossUnlocked[z.boss.id]);
+  const bossEverUnlocked = !!(c && progressFor(c).zoneBossEverUnlocked[z.boss.id]);
+  const [bandLo, bandHi] = actLevelBand(act, diffKey);
+  const zoneThreat = z.threat * threatMultFor(diffKey);
+  const bossThreat = z.threat * 1.4 * threatMultFor(diffKey);
+  const loopId = c && c.loop.contentId;
+
+  const zoneBody = !sectionOpen("questsOpen", z.id) ? "" : `<div style="margin-top:8px">
+      ${flavorOrHidden(unlocked, z.flavor)}
+      ${unlocked ? forecastHtml(c, z.id) : (c ? lockMsgHtml(zoneLockMsg(act, z)) : "")}
+    </div>`;
+  const bossBody = !sectionOpen("questsOpen", z.boss.id) ? "" : `<div style="margin-top:8px">
+      ${flavorOrHidden(bossEverUnlocked, z.boss.flavor)}
+      ${bossUnlocked ? forecastHtml(c, z.boss.id) : (c ? lockMsgHtml(zoneBossLockMsg(c, z)) : "")}
+    </div>`;
+
+  return `<div class="stub" style="margin-bottom:10px${unlocked ? "" : ";opacity:.5"}">
+    ${questRowHtml(z.id, `Zone ${z.id.slice(1)}`, z.name, zoneThreat, `Levels ${bandLo}–${bandHi}`,
+      questStatusChip(c, unlocked), zoneSendButton(c, z, unlocked), loopId === z.id, false)}
+    ${zoneBody}
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+      ${questRowHtml(z.boss.id, "Zone Boss", z.boss.name, bossThreat,
+        bossUnlocked ? "Unlocked" : (c ? zoneBossLockMsg(c, z) : "Locked"),
+        questStatusChip(c, bossUnlocked), bossSendButton(c, z.boss.id, "zoneboss", bossUnlocked, c ? zoneBossLockMsg(c, z) : "Locked"),
+        loopId === z.boss.id, !bossUnlocked)}
+      ${bossBody}
+    </div>
+  </div>`;
+}
+function actBossBlockHtml(c, act, diffKey){
+  const actBossUnlocked = !!(c && progressFor(c).bossUnlocked[act.actBoss.id]);
+  const actBossEverUnlocked = !!(c && progressFor(c).actBossEverUnlocked[act.n]);
+  const actBossThreat = act.actBoss.threat * threatMultFor(diffKey);
+  const loopId = c && c.loop.contentId;
+  const body = !sectionOpen("questsOpen", act.actBoss.id) ? "" : `<div style="margin-top:8px">
+      ${flavorOrHidden(actBossEverUnlocked, act.actBoss.flavor)}
+      ${actBossUnlocked ? forecastHtml(c, act.actBoss.id) : (c ? lockMsgHtml(actBossLockMsg(c, act)) : "")}
+    </div>`;
+  return `<div class="stub">
+    ${questRowHtml(act.actBoss.id, "Act Boss", act.actBoss.name, actBossThreat,
+      actBossUnlocked ? "Unlocked" : (c ? actBossLockMsg(c, act) : "Locked"),
+      questStatusChip(c, actBossUnlocked), bossSendButton(c, act.actBoss.id, "actboss", actBossUnlocked, c ? actBossLockMsg(c, act) : "Locked"),
+      loopId === act.actBoss.id, !actBossUnlocked)}
+    ${body}
+  </div>`;
+}
 function panelQuests(){
   const out = [];
   const c = activeChar();
@@ -4662,68 +4862,30 @@ function panelQuests(){
   const curAct = currentActFor(c);
   const openMap = S.ui.questsOpen || {};
 
-  for (const act of ACTS){
+  // §16 — loop policy moved to the TOP of the tab. With everything below
+  // collapsed by default the page is short; the panel a player actually
+  // configures every session shouldn't sit below 5 acts of scrolling.
+  out.push(loopPolicyPanel(c));
+
+  ACTS.forEach((act, actIdx) => {
+    if (actIdx > 0) out.push(`<div class="act-divider"></div>`);   // 1c — visual separator between Acts
     const open = openMap.hasOwnProperty(act.n) ? openMap[act.n] : act.n === curAct;
     const actReached = !!(c && progressFor(c).zoneUnlocked[act.zones[0].id]);
     const actCleared = !!(c && progressFor(c).actsCleared.includes(act.n));
-    const [bandLo, bandHi] = actLevelBand(act, diffKey);
     out.push(`<h2 class="sec" style="cursor:pointer;display:flex;justify-content:space-between;
         align-items:center;gap:10px${actReached ? "" : ";opacity:.5"}" onclick="A.toggleAct(${act.n})">
       <span>Act ${act.roman} &middot; ${act.n} — ${act.name}</span>
       <span style="font-size:11px">${open ? "▾" : "▸"}</span>
     </h2>`);
-    if (!open) continue;
+    if (!open) return;
 
     out.push(flavorOrHidden(actReached, act.opening.split("\n\n")[0], ";margin-bottom:14px"));
-    act.zones.forEach((z, zi) => {
-      const unlocked = !!(c && progressFor(c).zoneUnlocked[z.id]);
-      const bossUnlocked = !!(c && progressFor(c).bossUnlocked[z.boss.id]);
-      const bossEverUnlocked = !!(c && progressFor(c).zoneBossEverUnlocked[z.boss.id]);
-      const ilvl = zoneIlvlFor(act, zi, diffKey);
-      const zoneThreat = z.threat * threatMultFor(diffKey);
-      const bossThreat = z.threat * 1.4 * threatMultFor(diffKey);
-      out.push(`
-        <div class="stub" style="margin-bottom:10px${unlocked ? "" : ";opacity:.5"}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-            <div style="flex:1;min-width:220px">
-              <span class="ph">Zone ${z.id.slice(1)} &middot; Threat ${fmt(zoneThreat)} &middot; Levels ${bandLo}–${bandHi} &middot; ilvl ${ilvl}</span>
-              <div style="color:var(--parchment);font-family:var(--serif);letter-spacing:.08em">${esc(z.name)}</div>
-              ${flavorOrHidden(unlocked, z.flavor)}
-              ${unlocked ? forecastHtml(c, z.id) : `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneLockMsg(act, z))}</div>`}
-            </div>
-            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-              ${zoneSendButton(c, z, unlocked)}
-            </div>
-          </div>
-          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-            <div style="flex:1;min-width:220px">
-              <span class="ph" style="margin:0">Zone Boss &middot; Threat ${fmt(bossThreat)} &middot; ${bossUnlocked ? "unlocked" : "locked"}</span>
-              <div style="color:var(--parchment-dim)">${esc(z.boss.name)}</div>
-              ${flavorOrHidden(bossEverUnlocked, z.boss.flavor)}
-              ${bossUnlocked ? forecastHtml(c, z.boss.id) : (c ? `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(zoneBossLockMsg(c, z))}</div>` : "")}
-            </div>
-            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-              ${bossSendButton(c, z.boss.id, "zoneboss", bossUnlocked, c ? zoneBossLockMsg(c, z) : "Locked")}
-            </div>
-          </div>
-        </div>`);
-    });
-    const actBossUnlocked = !!(c && progressFor(c).bossUnlocked[act.actBoss.id]);
-    const actBossEverUnlocked = !!(c && progressFor(c).actBossEverUnlocked[act.n]);
-    const actBossThreat = act.actBoss.threat * threatMultFor(diffKey);
-    out.push(`
-      <div class="stub">
-        <span class="ph">Act Boss &middot; Threat ${fmt(actBossThreat)} &middot; ${actBossUnlocked ? "unlocked" : "locked"}</span>
-        <div style="color:var(--parchment);font-family:var(--serif);letter-spacing:.08em">${esc(act.actBoss.name)}</div>
-        ${flavorOrHidden(actBossEverUnlocked, act.actBoss.flavor)}
-        ${actBossUnlocked ? forecastHtml(c, act.actBoss.id) : (c ? `<div style="margin-top:6px;font-size:12px;color:var(--parchment-dim)">${esc(actBossLockMsg(c, act))}</div>` : "")}
-        <div style="margin-top:8px">${bossSendButton(c, act.actBoss.id, "actboss", actBossUnlocked, c ? actBossLockMsg(c, act) : "Locked")}</div>
-      </div>`);
+    act.zones.forEach(z => out.push(zoneBlockHtml(c, act, z, diffKey)));
+    out.push(actBossBlockHtml(c, act, diffKey));
     if (actCleared){
       out.push(flavorOrHidden(true, act.closing.split("\n\n")[0], ";margin-top:14px"));
     }
-  }
-  out.push(loopPolicyPanel(c));
+  });
   return out.join("");
 }
 
@@ -5227,11 +5389,16 @@ function marketItemCardHtml(it){
   const afford = !!(c && S.gold >= it.buyPrice);
   const disabled = !c || !roomy || !afford;
   const title = !c ? "No character selected" : !roomy ? "Inventory full" : !afford ? "Not enough gold" : "Buy";
+  const overLevel = c && it.req > c.level;
+  // §17 — reuse the SAME comparison inventory/vault items use (gearDeltaFor/
+  // gearDeltaHtml), never a second delta path — handles the empty-slot and
+  // over-level cases identically to itemCardInner.
   return `<div class="stub item-card" style="border-color:${border}">
     <div style="font-family:var(--serif);letter-spacing:.06em;color:var(--q-${it.quality}-text)">${esc(it.name)}</div>
     <div class="flavor" style="font-style:normal;font-size:12px;margin:4px 0 6px">
-      ${qualityLabel(it)} ${it.slot} &middot; Power ${fmt(it.power)} &middot; Req Lv ${it.req}
+      ${qualityLabel(it)} ${it.slot} &middot; Power ${fmt(it.power)} &middot; Req Lv ${it.req}${overLevel ? ` <span style="color:var(--crimson-text)">(too high)</span>` : ""}
     </div>
+    ${gearDeltaHtml(c, it)}
     ${affixTxt ? `<div style="font-size:12px;color:var(--gold);margin-bottom:8px">${esc(affixTxt)}</div>` : ""}
     <button class="btn ${disabled ? "" : "primary"}" onclick="A.buyMarketItem('${it.id}')" ${disabled ? "disabled" : ""} title="${esc(title)}">Buy &middot; ${fmt(it.buyPrice)}g</button>
   </div>`;
@@ -5241,6 +5408,11 @@ function marketItemCardHtml(it){
 // Unique, no Ancient/Mythic before unlock" are both enforced at roll time
 // (Engine.rollMarketStock) — this just displays what's currently there.
 function cinderMarketHtml(){
+  // Engine.advanceTo populates S.market before any render in normal play, but
+  // render() must never be able to throw — boot() renders too, so an exception
+  // here would brick the page on load for a save that predates the market or
+  // has it missing. Fall back to an empty stall rather than dying.
+  if (!S.market || !Array.isArray(S.market.stock)) S.market = {refreshAt: 0, stock: []};
   const msLeft = Math.max(0, S.market.refreshAt - Date.now());
   const stockHtml = S.market.stock.length
     ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:10px">${S.market.stock.map(marketItemCardHtml).join("")}</div>`
