@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -172,6 +172,15 @@ h3.sub{font-family:var(--serif);color:var(--parchment);font-size:14px;
   letter-spacing:.1em;margin:20px 0 8px;font-weight:600}
 h3.sub.collapsible{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;user-select:none}
 h3.sub.collapsible .car{font-size:11px;color:var(--parchment-dim)}
+/* Part 1 — Skill Tree is the largest, most decision-driving section on the
+   Character tab (§15.3), so its collapsible header reads at a different
+   register than the plain h3.sub trio above it (Difficulty/Combat &
+   Recovery/Economy & Growth): bumped to h2.sec's size/tracking, --crimson-
+   text (readable red, see that var's comment) instead of --parchment, and a
+   --crimson rule underneath for structure. Still an h3.sub.collapsible under
+   the hood — same toggle mechanics, same default-closed state. */
+h3.sub.tree-header{font-size:16px;letter-spacing:.16em;color:var(--crimson-text);
+  text-transform:uppercase;font-weight:700;padding-bottom:8px;border-bottom:1px solid var(--crimson)}
 .flavor{color:var(--parchment-dim);font-style:italic;line-height:1.65;max-width:64ch}
 .stub{
   border:1px dashed var(--line);border-radius:var(--r-md);padding:16px 18px;
@@ -893,12 +902,13 @@ const Names = {
    find) — a qualitative capstone effect is meant to be felt, not
    folded into the noise of a 2%-per-rank sum.
 
-   CAPSTONE TYPES — 7 reusable qualitative mechanics (doc: "capstones
+   CAPSTONE TYPES — 15 reusable qualitative mechanics (doc: "capstones
    give a qualitative effect, not a bigger number"; the doc's own
-   Barbarian example is T1). Reusing a small set of mechanic shapes
-   across 24 capstones (each with a unique name/flavor) is standard
-   practice for a system this size and keeps every one of them
-   independently verifiable — see DW.allTreeNodesWork().
+   Barbarian example is T1). §16 audit found the original 7 concentrated
+   8x/6x/5x on three types (T1/T4/T3) — this pass (see report) adds T8-T15
+   so 24 capstones read as up to 15 distinct payoffs instead of 7, while
+   keeping the same "reusable shape, unique name/flavor per branch" pattern
+   (each type independently verifiable — see DW.allTreeNodesWork()).
      T1 NEAR_DEATH_BONUS  — survive a run at <=10% HP -> next run's
                              {params.stat} is multiplied by params.mult.
      T2 GUARANTEED_SAVE   — once per run, a lethal tick leaves 1 HP
@@ -915,51 +925,77 @@ const Names = {
      T6 OPENING_STEP       — the first tick of every run always evades.
      T7 COMBAT_REGEN       — after any tick where HP is below 50%,
                              heal params.healPct of maxHP.
+     T8 BOSS_THREAT_SURGE  — every tick of a boss fight (not just the
+                             last), effective Threat is cut an extra
+                             params.bonus (folded into threatReductionFor).
+     T9 ZONE_THREAT_SURGE  — same as T8, but for non-boss zone runs.
+     T10 CRIT_IMMUNE       — never takes critical damage, full time
+                             (folded into critAllowedFor).
+     T11 SECOND_WIND_EVASION — same trigger as T3 (first time HP drops
+                             below 25% in a run), but adds params.bonus
+                             flat Evasion instead of Mitigation.
+     T12 UNCONDITIONAL_REGEN — same shape as T7, but heals every tick
+                             with no HP threshold (folded into
+                             maybeCombatRegen, alongside the unique
+                             combatMend it mirrors).
+     T13 DEATH_INSURANCE_SURGE — permanent +params.bonus to the death-
+                             save probability (folded into
+                             deathInsuranceChanceFor) — distinct from T2:
+                             probabilistic and unlimited per run, not a
+                             single 100%-guaranteed save.
+     T14 RECKLESS_ASSAULT  — permanent -params.hpCost% Max HP (Calc.maxHP)
+                             paired with +params.dmgBonus% Boss Damage
+                             (bossDamageFor) — the Max HP/offense trade the
+                             brief asked for on Barbarian Carnage.
+     T15 GUARDED_AGGRESSION — the inverse trigger of T3: while HP is
+                             >=50%, +params.bonus flat Mitigation for that
+                             tick (mirrors Paladin Aegis's own >=50%/<50%
+                             split, §4).
    ================================================================== */
 const TREES = {
   barbarian: {
     A: {name:"Carnage", nodes:[
-        {name:"Open Wound",   desc:"Boss fights end a little sooner.", stat:"bossDamage"},
-        {name:"First Blood",  desc:"The first strike finds the weak point more often.", stat:"bossDamage"},
-        {name:"No Mercy",     desc:"Boss fights end a little sooner.", stat:"bossDamage"},
-        {name:"Killing Floor",desc:"It stops being a fight and starts being an ending.", stat:"bossDamage"},
-      ], capstone:{name:"Undying Rage", desc:"Surviving a run below 10% HP grants +100% loot on the next run.",
-        type:"T1", params:{stat:"itemFind", mult:2}}},
+        {name:"Open Wound",  desc:"Boss fights end a little sooner.", stat:"bossDamage"},
+        {name:"Heavy Hand",  desc:"Every strike counts for a little more — heavier for it.", stat:"power"},
+        {name:"Numb to It",  desc:"What lands costs a little less. There's not much left to feel.", stat:"hpLossReduction"},
+        {name:"Thick Skull", desc:"The worst of it misses more often than it should.", stat:"critResist"},
+      ], capstone:{name:"Butcher's Wager", desc:"Give up some of what's left to lose, and hit harder for the rest of the fight — permanently lighter, permanently meaner.",
+        type:"T14", params:{hpCost:0.15, dmgBonus:0.20}}},
     B: {name:"Endurance", nodes:[
-        {name:"Thick Skin",   desc:"More to lose means more time before losing it.", stat:"maxHp"},
-        {name:"Scar Tissue",  desc:"The old wounds close faster than the new ones open.", stat:"mitigation"},
-        {name:"Iron Gut",     desc:"More to lose means more time before losing it.", stat:"maxHp"},
-        {name:"Won't Fall",   desc:"The old wounds close faster than the new ones open.", stat:"mitigation"},
-      ], capstone:{name:"Unbroken", desc:"The first time HP drops below 25% in a run, the body remembers how to keep standing — a flat mitigation surge for the rest of the run.",
-        type:"T3", params:{bonus:0.15}}},
+        {name:"Thick Skin",  desc:"More to lose means more time before losing it.", stat:"maxHp"},
+        {name:"Scar Tissue", desc:"The wait to rise again gets shorter — old scars know the way back up.", stat:"reviveSpeed"},
+        {name:"Iron Gut",    desc:"A little less gets through, every time.", stat:"mitigation"},
+        {name:"Won't Fall",  desc:"A chance the last blow isn't the last one.", stat:"deathInsurance"},
+      ], capstone:{name:"The Long Refusal", desc:"Something in it refuses to end — more chances than luck alone should give, every time it matters, not just once.",
+        type:"T13", params:{bonus:0.12}}},
     C: {name:"Warpath", nodes:[
         {name:"Forced March",     desc:"The road gets shorter with practice.", stat:"runSpeed"},
         {name:"Spoils",           desc:"Nothing is left behind that can be carried.", stat:"goldFind"},
-        {name:"No Rest",          desc:"The road gets shorter with practice.", stat:"runSpeed"},
-        {name:"Taken, Not Given", desc:"Nothing is left behind that can be carried.", stat:"goldFind"},
-      ], capstone:{name:"The Reckoning Follows", desc:"Win a boss fight and the next run's XP and Gold both come back doubled — the spoils follow the speed.",
-        type:"T4", params:{mult:1.5}}},
+        {name:"No Rest",          desc:"Nothing worth carrying stays uncarried, not at this pace.", stat:"itemFind"},
+        {name:"Taken, Not Given", desc:"The rare thing is a little less rare, found this way — taken at speed, not asked for.", stat:"uniqueChance"},
+      ], capstone:{name:"The Column Doesn't Stop", desc:"Outrun what would otherwise catch up — away from the biggest fights, the ground itself offers less resistance.",
+        type:"T9", params:{bonus:0.12}}},
   },
   sorcerer: {
     A: {name:"Conflagration", nodes:[
         {name:"Kindling",   desc:"Small fires, correctly placed, become large ones.", stat:"power"},
         {name:"Ember Reach",desc:"The fight is shorter when it starts already burning.", stat:"bossDamage"},
-        {name:"Wildfire",   desc:"Small fires, correctly placed, become large ones.", stat:"power"},
-        {name:"Immolate",   desc:"The fight is shorter when it starts already burning.", stat:"bossDamage"},
-      ], capstone:{name:"The Long Burn", desc:"Win a boss fight and the next run's XP and Gold both come back doubled.",
-        type:"T4", params:{mult:1.5}}},
+        {name:"Wildfire",   desc:"Less of the hour is spent getting there. The fire doesn't wait to be lit.", stat:"runSpeed"},
+        {name:"Immolate",   desc:"The burn is familiar by now; what lands costs a little less.", stat:"hpLossReduction"},
+      ], capstone:{name:"Already Burning", desc:"By the time a boss notices the fire, it's already inside the guard — every blow against it lands lighter, the whole fight through.",
+        type:"T8", params:{bonus:0.15}}},
     B: {name:"Wardweave", nodes:[
         {name:"Woven Ward",     desc:"A little less gets through, every time.", stat:"mitigation"},
         {name:"Turned Blade",   desc:"The worst of it misses more often than it should.", stat:"critResist"},
-        {name:"Second Skin",    desc:"A little less gets through, every time.", stat:"mitigation"},
-        {name:"Unbroken Weave", desc:"The worst of it misses more often than it should.", stat:"critResist"},
-      ], capstone:{name:"The Weave Holds", desc:"The first time HP drops below 25% in a run, the ward tightens — a flat mitigation surge for the rest of the run.",
-        type:"T3", params:{bonus:0.15}}},
+        {name:"Second Skin",    desc:"More to lose means more time before losing it. The weave holds a little more, layer on layer.", stat:"maxHp"},
+        {name:"Unbroken Weave", desc:"A chance to not be where the blow lands — the weave bends before it has to break.", stat:"evasion"},
+      ], capstone:{name:"The Weave Never Parts", desc:"Nine folds, then a tenth. Nothing that would land the worst of it finds a seam anymore.",
+        type:"T10", params:{}}},
     C: {name:"Translocation", nodes:[
         {name:"Short Step",   desc:"Less of the hour is spent getting there.", stat:"runSpeed"},
         {name:"Quick Study",  desc:"What's learned in less time is kept just the same.", stat:"xpGain"},
-        {name:"Long Stride",  desc:"Less of the hour is spent getting there.", stat:"runSpeed"},
-        {name:"Borrowed Time",desc:"What's learned in less time is kept just the same.", stat:"xpGain"},
+        {name:"Long Stride",  desc:"A chance to not be where the blow lands — gone before it decides where to fall.", stat:"evasion"},
+        {name:"Borrowed Time",desc:"There's always a little more than they said, picked up on the way through.", stat:"goldFind"},
       ], capstone:{name:"Outrun It", desc:"Surviving a run below 10% HP grants double XP on the next run — outrunning what nearly caught you teaches fast.",
         type:"T1", params:{stat:"xp", mult:2}}},
   },
@@ -967,45 +1003,45 @@ const TREES = {
     A: {name:"Larceny", nodes:[
         {name:"Light Fingers",desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
         {name:"Back Pocket",  desc:"There's always a little more than they said.", stat:"goldFind"},
-        {name:"Quick Hands",  desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
-        {name:"Fair Share",   desc:"There's always a little more than they said.", stat:"goldFind"},
+        {name:"Quick Hands",  desc:"The rare thing is a little less rare, found this way — quick hands know quality fast.", stat:"uniqueChance"},
+        {name:"Fair Share",   desc:"More to lose means more time before losing it. A thief who can't take a hit doesn't get old.", stat:"maxHp"},
       ], capstone:{name:"One Good Score", desc:"Surviving a run below 10% HP grants +100% item find on the next run — worth the weight of carrying it back.",
         type:"T1", params:{stat:"itemFind", mult:2}}},
     B: {name:"Shadowstep", nodes:[
-        {name:"Half-Seen",             desc:"A chance to not be where the blow lands.", stat:"evasion"},
-        {name:"Soft Step",             desc:"What does land costs a little less.", stat:"hpLossReduction"},
-        {name:"Gone Before It Lands",  desc:"A chance to not be where the blow lands.", stat:"evasion"},
-        {name:"Thin Air",              desc:"What does land costs a little less.", stat:"hpLossReduction"},
+        {name:"Half-Seen",            desc:"A chance to not be where the blow lands.", stat:"evasion"},
+        {name:"Soft Step",            desc:"What does land costs a little less.", stat:"hpLossReduction"},
+        {name:"Gone Before It Lands", desc:"The worst of it misses more often than it should — gone before it decides where to land.", stat:"critResist"},
+        {name:"Thin Air",             desc:"Less of the hour is spent getting there, moving like there's nothing behind to catch up.", stat:"runSpeed"},
       ], capstone:{name:"Not There", desc:"Once per run, a lethal blow finds only where you used to be — you're left at 1 HP instead of dead.",
         type:"T2", params:{}}},
     C: {name:"Precision", nodes:[
         {name:"Measured Cut",  desc:"Every strike counts for a little more.", stat:"power"},
         {name:"Weak Point",    desc:"The rare thing is a little less rare, found this way.", stat:"uniqueChance"},
-        {name:"Clean Line",    desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"The Exact Spot",desc:"The rare thing is a little less rare, found this way.", stat:"uniqueChance"},
-      ], capstone:{name:"It Only Takes Once", desc:"Surviving a run below 10% HP doubles unique-find chance on the next run — the killing blow lands exactly right, once.",
-        type:"T1", params:{stat:"unique", mult:2}}},
+        {name:"Clean Line",    desc:"The fight ends sooner than it should — the cut was already clean.", stat:"bossDamage"},
+        {name:"The Exact Spot",desc:"The worst of it misses more often than it should, read a heartbeat early.", stat:"critResist"},
+      ], capstone:{name:"The Killing Read", desc:"Once the fight turns bad, the same eye that finds weak points finds the way out of one — the worse it gets, the harder there is to hit.",
+        type:"T11", params:{bonus:0.15}}},
   },
   necromancer: {
     A: {name:"Reanimation", nodes:[
-        {name:"Second Breath",              desc:"The wait to rise again gets shorter.", stat:"reviveSpeed"},
-        {name:"Cold Hands",                 desc:"A chance the last blow isn't the last one.", stat:"deathInsurance"},
-        {name:"Borrowed Pulse",             desc:"The wait to rise again gets shorter.", stat:"reviveSpeed"},
-        {name:"The Long Wait, Shortened",   desc:"A chance the last blow isn't the last one.", stat:"deathInsurance"},
+        {name:"Second Breath",            desc:"The wait to rise again gets shorter.", stat:"reviveSpeed"},
+        {name:"Cold Hands",                desc:"A chance the last blow isn't the last one.", stat:"deathInsurance"},
+        {name:"Borrowed Pulse",            desc:"More to lose means more time before losing it — the pulse was borrowed, not given back yet.", stat:"maxHp"},
+        {name:"The Long Wait, Shortened",  desc:"Healing comes a little easier, watched or not, in the space between two heartbeats.", stat:"regen"},
       ], capstone:{name:"The First Death Is a Lie", desc:"Once per run, a lethal blow doesn't take — you're left at 1 HP instead of dead, guaranteed.",
         type:"T2", params:{}}},
     B: {name:"Blight", nodes:[
         {name:"Rot",                desc:"Every strike counts for a little more.", stat:"power"},
         {name:"Wasting",            desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-        {name:"The Long Sickness",  desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"What's Left Behind", desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-      ], capstone:{name:"It Spreads", desc:"Win a boss fight and the next run's XP and Gold both come back doubled.",
-        type:"T4", params:{mult:1.5}}},
+        {name:"The Long Sickness",  desc:"A chance the last blow isn't the last one — the sickness takes its time deciding.", stat:"deathInsurance"},
+        {name:"What's Left Behind", desc:"What lands costs a little less; the rot already took the worst of it.", stat:"hpLossReduction"},
+      ], capstone:{name:"It Spreads", desc:"The sickness doesn't ask permission to keep going — more chances than luck alone would give, every time it matters.",
+        type:"T13", params:{bonus:0.12}}},
     C: {name:"Harvest", nodes:[
-        {name:"Gleaning",              desc:"What's learned isn't lost.", stat:"xpGain"},
-        {name:"What the Grave Gives",  desc:"The dead's leavings are worth more, taken this way.", stat:"goldFind"},
-        {name:"Full Accounting",       desc:"What's learned isn't lost.", stat:"xpGain"},
-        {name:"Nothing Wasted",        desc:"The dead's leavings are worth more, taken this way.", stat:"goldFind"},
+        {name:"Gleaning",             desc:"What's learned isn't lost.", stat:"xpGain"},
+        {name:"What the Grave Gives", desc:"The dead's leavings are worth more, taken this way.", stat:"goldFind"},
+        {name:"Full Accounting",      desc:"Rest does more with the same hour — the grave keeps its own accounting, even off the clock.", stat:"restRate"},
+        {name:"Nothing Wasted",       desc:"More to lose means more time before losing it. Nothing wasted, least of all what's still standing.", stat:"maxHp"},
       ], capstone:{name:"The Reaping", desc:"Surviving a run below 10% HP doubles both XP and Gold on the next run.",
         type:"T1", params:{stat:"reward", mult:2}}},
   },
@@ -1013,22 +1049,22 @@ const TREES = {
     A: {name:"Bulwark", nodes:[
         {name:"Raised Shield", desc:"A little less gets through, every time.", stat:"mitigation"},
         {name:"Set Stance",    desc:"More to lose means more time before losing it.", stat:"maxHp"},
-        {name:"Hold the Line", desc:"A little less gets through, every time.", stat:"mitigation"},
-        {name:"Last Wall",     desc:"More to lose means more time before losing it.", stat:"maxHp"},
+        {name:"Hold the Line", desc:"The worst of it misses more often than it should — the line reads the blow early.", stat:"critResist"},
+        {name:"Last Wall",     desc:"Rest does more with the same hour, behind a wall that doesn't need watching every minute.", stat:"restRate"},
       ], capstone:{name:"It Does Not Break", desc:"The first time HP drops below 25% in a run, the line holds harder — a flat mitigation surge for the rest of the run.",
         type:"T3", params:{bonus:0.15}}},
     B: {name:"Zeal", nodes:[
         {name:"Righteous Grip", desc:"Every strike counts for a little more.", stat:"power"},
         {name:"Sworn Oath",     desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-        {name:"Judgment",       desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"No Absolution",  desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-      ], capstone:{name:"Wrath Answered", desc:"Win a boss fight and the next run's XP and Gold both come back doubled.",
-        type:"T4", params:{mult:1.5}}},
+        {name:"Judgment",       desc:"The worst of it misses more often than it should — judgment doesn't flinch.", stat:"critResist"},
+        {name:"No Absolution",  desc:"A little less gets through, every time. No absolution needed when little lands.", stat:"mitigation"},
+      ], capstone:{name:"Wrath Answered", desc:"The line holds even while it's swinging — so long as there's still enough left standing to protect, it does.",
+        type:"T15", params:{bonus:0.12}}},
     C: {name:"Consecration", nodes:[
-        {name:"Quiet Vigil",  desc:"Healing comes a little easier, watched or not.", stat:"regen"},
-        {name:"Kept Watch",   desc:"Rest does more with the same hour.", stat:"restRate"},
-        {name:"Steady Hands", desc:"Healing comes a little easier, watched or not.", stat:"regen"},
-        {name:"The Long Kneel",desc:"Rest does more with the same hour.", stat:"restRate"},
+        {name:"Quiet Vigil",   desc:"Healing comes a little easier, watched or not.", stat:"regen"},
+        {name:"Kept Watch",    desc:"Rest does more with the same hour.", stat:"restRate"},
+        {name:"Steady Hands",  desc:"More to lose means more time before losing it — steady hands keep the line whole.", stat:"maxHp"},
+        {name:"The Long Kneel",desc:"What lands costs a little less, knelt this long in the same spot.", stat:"hpLossReduction"},
       ], capstone:{name:"Sanctuary", desc:"While Rested, mitigation is raised further for that run — the ground stays consecrated a while after leaving it.",
         type:"T5", params:{bonus:0.15}}},
   },
@@ -1036,70 +1072,70 @@ const TREES = {
     A: {name:"Flow", nodes:[
         {name:"First Step",   desc:"The road gets shorter with practice.", stat:"runSpeed"},
         {name:"Give Ground",  desc:"A chance to not be where the blow lands.", stat:"evasion"},
-        {name:"Never There",  desc:"The road gets shorter with practice.", stat:"runSpeed"},
-        {name:"Already Gone", desc:"A chance to not be where the blow lands.", stat:"evasion"},
+        {name:"Steady Center",desc:"More to lose means more time before losing it — the center holds while everything else moves.", stat:"maxHp"},
+        {name:"Soft Landing", desc:"A little less gets through, every time — even a fall can be softened, landed right.", stat:"mitigation"},
       ], capstone:{name:"The Water Remembers", desc:"The first blow of every run always misses — it takes a moment to find where you actually are.",
         type:"T6", params:{}}},
     B: {name:"Discipline", nodes:[
-        {name:"Held Breath",     desc:"Healing comes a little easier, watched or not.", stat:"regen"},
-        {name:"Stillness Kept",  desc:"Rest does more with the same hour.", stat:"restRate"},
-        {name:"Iron Calm",       desc:"More to lose means more time before losing it.", stat:"maxHp"},
-        {name:"The Long Practice",desc:"Healing comes a little easier, watched or not.", stat:"regen"},
+        {name:"Held Breath",      desc:"Healing comes a little easier, watched or not.", stat:"regen"},
+        {name:"Stillness Kept",   desc:"Rest does more with the same hour.", stat:"restRate"},
+        {name:"Iron Calm",        desc:"More to lose means more time before losing it.", stat:"maxHp"},
+        {name:"The Long Practice",desc:"A little less gets through, every time — the practice never really stops.", stat:"mitigation"},
       ], capstone:{name:"Center", desc:"Below 50% HP, the body keeps healing even mid-fight — a small mend after every blow.",
         type:"T7", params:{healPct:0.01}}},
     C: {name:"Iron Body", nodes:[
-        {name:"Callused",     desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"Set Bone",     desc:"A little less gets through, every time.", stat:"mitigation"},
-        {name:"Weathered",    desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"Does Not Yield",desc:"A little less gets through, every time.", stat:"mitigation"},
-      ], capstone:{name:"Immovable", desc:"The first time HP drops below 25% in a run, the body sets like stone — a flat mitigation surge for the rest of the run.",
-        type:"T3", params:{bonus:0.15}}},
+        {name:"Callused",      desc:"Every strike counts for a little more.", stat:"power"},
+        {name:"Set Bone",      desc:"A little less gets through, every time.", stat:"mitigation"},
+        {name:"Weathered",     desc:"More to lose means more time before losing it — weathered enough to take it.", stat:"maxHp"},
+        {name:"Does Not Yield",desc:"The worst of it misses more often than it should. It does not yield to the worst of anything.", stat:"critResist"},
+      ], capstone:{name:"Immovable", desc:"The body doesn't wait to be hurt before it starts closing — it's simply always closing, blow or no blow.",
+        type:"T12", params:{healPct:0.008}}},
   },
   druid: {
     A: {name:"Growth", nodes:[
-        {name:"New Growth",    desc:"What's learned isn't lost.", stat:"xpGain"},
-        {name:"Deep Root",     desc:"Healing comes a little easier, watched or not.", stat:"regen"},
-        {name:"Slow Season",   desc:"What's learned isn't lost.", stat:"xpGain"},
-        {name:"What Grows Back",desc:"Healing comes a little easier, watched or not.", stat:"regen"},
+        {name:"New Growth",     desc:"What's learned isn't lost.", stat:"xpGain"},
+        {name:"Deep Root",      desc:"Healing comes a little easier, watched or not.", stat:"regen"},
+        {name:"Slow Season",    desc:"Rest does more with the same hour — the slow season always comes back around.", stat:"restRate"},
+        {name:"What Grows Back",desc:"The rare thing is a little less rare, found this way — what grows back sometimes grows back stranger.", stat:"uniqueChance"},
       ], capstone:{name:"The Long Green", desc:"Surviving a run below 10% HP grants double XP on the next run — something always grows back.",
         type:"T1", params:{stat:"xp", mult:2}}},
     B: {name:"Primal", nodes:[
-        {name:"Bare Teeth",   desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"Claw Mark",    desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-        {name:"The Old Hunger",desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"Nothing Tame", desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-      ], capstone:{name:"What the Wild Remembers", desc:"Win a boss fight and the next run's XP and Gold both come back doubled.",
-        type:"T4", params:{mult:1.5}}},
+        {name:"Bare Teeth",    desc:"Every strike counts for a little more.", stat:"power"},
+        {name:"Claw Mark",     desc:"The fight ends sooner than it should.", stat:"bossDamage"},
+        {name:"The Old Hunger",desc:"A chance to not be where the blow lands — old hunger doesn't wait to be caught.", stat:"evasion"},
+        {name:"Nothing Tame",  desc:"The worst of it misses more often than it should. Nothing tame flinches at the whole of it.", stat:"critResist"},
+      ], capstone:{name:"What the Wild Remembers", desc:"Hurt enough, and the oldest defense wakes — nothing that would land the worst of it finds a way through, not anymore.",
+        type:"T10", params:{}}},
     C: {name:"Providence", nodes:[
-        {name:"Gathered In",    desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
-        {name:"Fair Weather",   desc:"There's always a little more than they said.", stat:"goldFind"},
-        {name:"Full Store",     desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
-        {name:"Providence's Hand",desc:"There's always a little more than they said.", stat:"goldFind"},
-      ], capstone:{name:"Nothing Is Wasted", desc:"Surviving a run below 10% HP doubles gold find on the next run.",
-        type:"T1", params:{stat:"goldFind", mult:2}}},
+        {name:"Gathered In",       desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
+        {name:"Fair Weather",      desc:"There's always a little more than they said.", stat:"goldFind"},
+        {name:"Full Store",        desc:"What's learned isn't lost — the store keeps more than coin.", stat:"xpGain"},
+        {name:"Providence's Hand", desc:"The threat is a little smaller, spoken to right, when the season provides.", stat:"threatReduction"},
+      ], capstone:{name:"Nothing Is Wasted", desc:"Win a boss fight and the next run's XP and Gold both come back doubled — nothing that falls goes uncounted.",
+        type:"T4", params:{mult:1.5}}},
   },
   witchdoctor: {
     A: {name:"Hexes", nodes:[
-        {name:"First Hex",   desc:"The threat is a little smaller, spoken to right.", stat:"threatReduction"},
-        {name:"Weight of It",desc:"A little less gets through, every time.", stat:"mitigation"},
-        {name:"Marked",      desc:"The threat is a little smaller, spoken to right.", stat:"threatReduction"},
-        {name:"The Hex Holds",desc:"A little less gets through, every time.", stat:"mitigation"},
-      ], capstone:{name:"The Debt Comes Due", desc:"The first time HP drops below 25% in a run, the hex tightens on the other end — a flat mitigation surge for the rest of the run.",
-        type:"T3", params:{bonus:0.15}}},
+        {name:"First Hex",    desc:"The threat is a little smaller, spoken to right.", stat:"threatReduction"},
+        {name:"Weight of It", desc:"A little less gets through, every time.", stat:"mitigation"},
+        {name:"Marked",       desc:"The worst of it misses more often than it should — marked things are harder to finish cleanly.", stat:"critResist"},
+        {name:"The Hex Holds",desc:"Rest does more with the same hour, wrapped in a hex that doesn't let go easily.", stat:"restRate"},
+      ], capstone:{name:"The Debt Comes Due", desc:"The hex bites hardest against the biggest threats — the whole fight, not just the reckoning at the end.",
+        type:"T8", params:{bonus:0.15}}},
     B: {name:"Fetish", nodes:[
-        {name:"Bound Bone",    desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"Whispered Name",desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-        {name:"Old Favor",     desc:"Every strike counts for a little more.", stat:"power"},
-        {name:"The Fetish Wakes",desc:"The fight ends sooner than it should.", stat:"bossDamage"},
-      ], capstone:{name:"It Answers", desc:"Win a boss fight and the next run's XP and Gold both come back doubled.",
-        type:"T4", params:{mult:1.5}}},
+        {name:"Bound Bone",     desc:"Every strike counts for a little more.", stat:"power"},
+        {name:"Whispered Name", desc:"The fight ends sooner than it should.", stat:"bossDamage"},
+        {name:"Old Favor",      desc:"The threat is a little smaller, spoken to right — an old favor, called in.", stat:"threatReduction"},
+        {name:"The Fetish Wakes",desc:"A chance the last blow isn't the last one — the fetish wakes before it lands.", stat:"deathInsurance"},
+      ], capstone:{name:"It Answers", desc:"Out past a boss's own ground, the fetish already knows the way through — danger there answers to it, a little quieter each time.",
+        type:"T9", params:{bonus:0.12}}},
     C: {name:"Avarice", nodes:[
         {name:"Small Mercy",       desc:"There's always a little more than they said.", stat:"goldFind"},
         {name:"Counted Twice",     desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
-        {name:"Nothing Given Free",desc:"There's always a little more than they said.", stat:"goldFind"},
-        {name:"The Full Price",    desc:"Nothing worth carrying stays uncarried.", stat:"itemFind"},
-      ], capstone:{name:"Take It All", desc:"Surviving a run below 10% HP doubles gold find on the next run — the price gets paid twice.",
-        type:"T1", params:{stat:"goldFind", mult:2}}},
+        {name:"Nothing Given Free",desc:"Rest does more with the same hour — nothing given free, but everything counted, even the hours.", stat:"restRate"},
+        {name:"The Full Price",    desc:"A chance the last blow isn't the last one — the full price includes what's owed after, too.", stat:"deathInsurance"},
+      ], capstone:{name:"Take It All", desc:"Win a boss fight and the next run's XP and Gold both come back doubled — take it all, then take the rest next time.",
+        type:"T4", params:{mult:1.5}}},
   },
 };
 console.assert(BAL.LEVEL99_SKILL_POINTS < 150, "§5.1 — 98 points at 99 must be < 150 needed to max all three branches");
@@ -1109,11 +1145,12 @@ console.assert(BAL.LEVEL99_SKILL_POINTS < 150, "§5.1 — 98 points at 99 must b
 // `stat` is one of the keys treeSum() is actually queried with by a *For()
 // helper (see the VALID_TREE_STATS list — kept in sync by hand since JS has
 // no static call-graph check); a capstone is a no-op unless its `type` is
-// one of the 7 wired mechanics. Exposed as DW.allTreeNodesWork().
+// one of the 15 wired mechanics (T1-T15 — see the TREES comment).
+// Exposed as DW.allTreeNodesWork().
 const VALID_TREE_STATS = ["power","maxHp","mitigation","bossDamage","itemFind",
   "goldFind","xpGain","uniqueChance","runSpeed","restRate","regen","reviveSpeed",
   "hpLossReduction","evasion","deathInsurance","threatReduction","critResist"];
-const VALID_CAPSTONE_TYPES = ["T1","T2","T3","T4","T5","T6","T7"];
+const VALID_CAPSTONE_TYPES = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15"];
 function allTreeNodesWork(){
   const validStats = new Set(VALID_TREE_STATS), validTypes = new Set(VALID_CAPSTONE_TYPES);
   let ranked = 0, capstones = 0;
@@ -1143,7 +1180,7 @@ function allTreeNodesWork(){
    signature is the whole point, not a bonus on top of one).
 
    SIGNATURE TYPES — reusable qualitative mechanics, same pattern as the
-   7 capstone types (TREES comment): 15 types below, each used 1-2 times
+   15 capstone types (TREES comment): 15 types below, each used 1-2 times
    across the 24 uniques with class-appropriate flavor text, so every
    unique reads distinctly even where the underlying mechanic repeats.
    Every type that touches damage/HP is wired into the SHARED tick-
@@ -2035,7 +2072,14 @@ const Calc = {
     // §9.4 +Max HP affix (gear) + Phase 7 tree `maxHp` nodes, same additive-%
     // pattern (see TREES stacking-rule comment).
     const base = 100 + c.level * 10;
-    return Math.round(base * (1 + gearSumAffix(c, "maxHpPct") + treeSum(c, "maxHp")));
+    let mult = 1 + gearSumAffix(c, "maxHpPct") + treeSum(c, "maxHp");
+    // §5.4 T14 RECKLESS_ASSAULT (Barbarian Carnage) — permanent Max HP
+    // sacrifice, paired with the +Boss Damage grant in bossDamageFor below.
+    // Both read off the SAME capstone def, so the two numbers can never
+    // drift apart; both applyTick and forecastFor call Calc.maxHP directly,
+    // so the sacrifice is felt everywhere maxHP is, never just live play.
+    if (hasCapstoneType(c, "T14")) mult *= (1 - getCapstoneByType(c, "T14").def.params.hpCost);
+    return Math.round(base * mult);
   },
   // Itemized so panelChar's Power Breakdown and this stay in sync (§15.3).
   powerBreakdown(c){
@@ -2940,8 +2984,10 @@ function critChanceFor(c){
 // §9.5 Phase 11 — Mantle of Nine Silences / Aegis of the Weeping Chapel
 // (critImmune): full-time crit immunity, checked before the Paladin's own
 // conditional (<50% HP) rule so either source alone is sufficient.
+// §5.4 T10 CRIT_IMMUNE (Sorcerer Wardweave) — same shape as critImmune,
+// capstone-granted instead of gear-granted.
 function critAllowedFor(c, hpFrac){
-  if (hasUniqueSig(c, "critImmune")) return false;
+  if (hasUniqueSig(c, "critImmune") || hasCapstoneType(c, "T10")) return false;
   return !(c.cls === "paladin" && hpFrac < 0.5);
 }
 
@@ -2988,7 +3034,10 @@ function xpGainFor(c, atMs){
 // branch themes, see TREES comment) + §9.6 Regalia of the Last King 2pc —
 // wired into Calc.tickDamage.
 function bossDamageFor(c){
-  const pct = gearSumAffix(c, "bossDamage") + treeSum(c, "bossDamage") + (hasSetBonus(c, "lastKing", 2) ? BAL.SET_FX.lastKingBossDamage2pc : 0);
+  let pct = gearSumAffix(c, "bossDamage") + treeSum(c, "bossDamage") + (hasSetBonus(c, "lastKing", 2) ? BAL.SET_FX.lastKingBossDamage2pc : 0);
+  // §5.4 T14 RECKLESS_ASSAULT (Barbarian Carnage) — the offense half of the
+  // Max HP/Boss Damage trade; see Calc.maxHP for the other half.
+  if (hasCapstoneType(c, "T14")) pct += getCapstoneByType(c, "T14").def.params.dmgBonus;
   return clamp(pct, 0, 0.9);
 }
 function uniqueChanceFor(c, atMs){
@@ -3004,6 +3053,12 @@ function uniqueChanceFor(c, atMs){
 // explicitly ZONE-only, unlike the passive/tree terms which apply everywhere.
 function threatReductionFor(c, isBoss){
   let pct = passiveThreatReductionPctFor(c) + treeSum(c, "threatReduction");
+  // §5.4 T8 BOSS_THREAT_SURGE (Witch Doctor Hexes) / T9 ZONE_THREAT_SURGE
+  // (Barbarian Warpath, Witch Doctor Fetish) — capstone-tier extra Threat
+  // cut, scoped to boss fights or zone runs respectively, same isBoss gate
+  // the unique threatSiphonZone below already uses.
+  if (isBoss && hasCapstoneType(c, "T8")) pct += getCapstoneByType(c, "T8").def.params.bonus;
+  if (!isBoss && hasCapstoneType(c, "T9")) pct += getCapstoneByType(c, "T9").def.params.bonus;
   if (!isBoss && hasUniqueSig(c, "threatSiphonZone")) pct += BAL.UNIQUE_FX.threatSiphonZonePct;
   return clamp(pct, 0, 0.65);
 }
@@ -3015,7 +3070,15 @@ function threatReductionFor(c, isBoss){
 function evasionChanceFor(c){ return clamp(treeSum(c, "evasion"), 0, 0.5); }
 // §5.4 Necromancer Reanimation "death insurance" — chance a lethal tick
 // leaves 1 HP instead of 0. Read by resolveLethalTick (shared).
-function deathInsuranceChanceFor(c){ return clamp(treeSum(c, "deathInsurance"), 0, 0.5); }
+// §5.4 T13 DEATH_INSURANCE_SURGE (Barbarian Endurance, Necromancer Blight) —
+// a permanent flat add to this SAME probability, distinct from T2's
+// once-per-run 100%-guaranteed save (this can trigger more than once per
+// run, at less than certain odds).
+function deathInsuranceChanceFor(c){
+  let s = treeSum(c, "deathInsurance");
+  if (hasCapstoneType(c, "T13")) s += getCapstoneByType(c, "T13").def.params.bonus;
+  return clamp(s, 0, 0.5);
+}
 
 // §6.6 — regen rate seams. §9.4 +HP Regen affix + tree `regen` nodes boost
 // passive (idle) regen; Monk Stillness passive multiplies it 3x on top.
@@ -3141,6 +3204,10 @@ function resolveTickOutcome(c, base, hpFrac, opts, atMs){
   // first tick, same shape as the existing T6 capstone check.
   let evChance = evasionChanceFor(c);
   if (hasUniqueSig(c, "lowHpEvasion") && hpFrac < 0.5) evChance = clamp(evChance + BAL.UNIQUE_FX.lowHpEvasionBonus, 0, 0.9);
+  // §5.4 T11 SECOND_WIND_EVASION (Rogue Precision, Druid Primal) — same
+  // trigger/latch as T3's mitigation surge below, but adds flat Evasion
+  // instead of Mitigation.
+  if (opts.secondWindActive && hasCapstoneType(c, "T11")) evChance = clamp(evChance + getCapstoneByType(c, "T11").def.params.bonus, 0, 0.9);
   const evaded = (opts.isFirstTick && (hasCapstoneType(c, "T6") || hasUniqueSig(c, "openerEvade"))) || Math.random() < evChance;
   if (evaded) return {dmg: 0, isCrit: false, evaded: true};
 
@@ -3153,6 +3220,10 @@ function resolveTickOutcome(c, base, hpFrac, opts, atMs){
 
   let mit = mitigationFor(c);
   if (opts.secondWindActive && hasCapstoneType(c, "T3")) mit += getCapstoneByType(c, "T3").def.params.bonus;
+  // §5.4 T15 GUARDED_AGGRESSION (Paladin Zeal) — "protected aggression":
+  // flat Mitigation while HP is still healthy (>=50%), the inverse trigger
+  // of T3's low-HP surge — mirrors Aegis's own >=50%/<50% split (§4).
+  if (hpFrac >= 0.5 && hasCapstoneType(c, "T15")) mit += getCapstoneByType(c, "T15").def.params.bonus;
   // Butcher's Apron/Wrappings of the Quiet Below (woundWard) — mitigation
   // scales with HP already lost THIS run (1-hpFrac), capped. Note this is
   // an honest, un-special-cased interaction with The Unspent Hour (deferred
@@ -3202,6 +3273,9 @@ function maybeCombatRegen(c, hp, maxHP){
   if (hp <= 0) return hp;
   let healPct = 0;
   if (hasCapstoneType(c, "T7") && hp / maxHP < 0.5) healPct += getCapstoneByType(c, "T7").def.params.healPct;
+  // §5.4 T12 UNCONDITIONAL_REGEN (Monk Iron Body) — same shape as combatMend
+  // below (no HP threshold), capstone-granted instead of gear-granted.
+  if (hasCapstoneType(c, "T12")) healPct += getCapstoneByType(c, "T12").def.params.healPct;
   if (hasUniqueSig(c, "combatMend")) healPct += BAL.UNIQUE_FX.combatMendPct;
   if (hasSetBonus(c, "drownedChoir", 3)) healPct += regenRateFor(c) * (BAL.TICK_MINUTES / 60);
   if (healPct <= 0) return hp;
@@ -4023,7 +4097,13 @@ function forecastFor(c, targetId){
   const mitigation = mitigationFor(c), classModifier = classModifierFor(c, nowSnap);
   const critChance = critChanceFor(c);
   const evasion = evasionChanceFor(c), deathIns = deathInsuranceChanceFor(c);
-  const capSig = ["T1","T2","T3","T4","T5","T6","T7"].map(t => hasCapstoneType(c, t) ? "1" : "0").join("");
+  // §5.4 T8-T15 (this pass) — several of these (T10 crit-immune, T11 evasion
+  // surge, T12 unconditional regen, T15 mitigation-while-healthy) are
+  // conditional/tick-state-dependent effects folded into resolveTickOutcome/
+  // critAllowedFor/maybeCombatRegen, exactly like T3/T6's originals, and
+  // aren't otherwise reflected in any scalar above — so the full T1-T15 list
+  // stays in the cache key, not just the original 7.
+  const capSig = VALID_CAPSTONE_TYPES.map(t => hasCapstoneType(c, t) ? "1" : "0").join("");
   const bossDmgPct = bossDamageFor(c), threatRedPct = threatReductionFor(c, isBoss);
   const sigFlags = ["openerCrit","openerEvade","critImmune","lowHpEvasion","deathDefy","combatMend","woundWard","deferred","executeFinish","threatSiphonZone"]
     .map(s => hasUniqueSig(c, s) ? "1" : "0").join("");
@@ -5054,8 +5134,8 @@ function treeNodeEffectText(n, rank){
 }
 /* A capstone's full mechanical effect, explicit — §16: "capstones must
    state their full effect explicitly, not just flavor". One branch per
-   CAPSTONE TYPE (see the TREES comment for the 7 shapes); every capstone
-   in the game is one of these seven, so this covers all 24. */
+   CAPSTONE TYPE (see the TREES comment for the 15 shapes); every capstone
+   in the game is one of these fifteen, so this covers all 24. */
 function capstoneEffectText(def){
   const p = def.params || {};
   const statLbl = CAPSTONE_STAT_LABELS[p.stat] || p.stat;
@@ -5067,6 +5147,14 @@ function capstoneEffectText(def){
     case "T5": return `+${Math.round(p.bonus * 100)}% flat Mitigation for the whole run, whenever the Rested buff is active.`;
     case "T6": return "The first tick of every run always evades (100% chance to take zero damage).";
     case "T7": return `After any tick where HP is below 50%, heal ${trimPct(p.healPct * 100)}% of Max HP.`;
+    case "T8": return `Against bosses, effective Threat is cut an extra ${Math.round(p.bonus * 100)}% for the whole fight.`;
+    case "T9": return `Outside boss fights, effective Threat is cut an extra ${Math.round(p.bonus * 100)}%.`;
+    case "T10": return "Never takes critical damage — full time, not just below 50% HP.";
+    case "T11": return `The first time HP drops below 25% in a run: +${Math.round(p.bonus * 100)}% flat Evasion for the rest of that run.`;
+    case "T12": return `Heals ${trimPct(p.healPct * 100)}% of Max HP after every tick, regardless of current HP.`;
+    case "T13": return `+${Math.round(p.bonus * 100)}% Death-Save Chance on every lethal tick — no once-per-run limit.`;
+    case "T14": return `-${Math.round(p.hpCost * 100)}% Max HP, +${Math.round(p.dmgBonus * 100)}% Boss Damage — permanently.`;
+    case "T15": return `Whenever HP is 50% or above: +${Math.round(p.bonus * 100)}% flat Mitigation.`;
     default:   return "";
   }
 }
@@ -5141,9 +5229,12 @@ function sectionOpen(group, key){ return !!(S.ui[group] && S.ui[group][key]); }
 // the achievement checklist toggle, §17 4b) without touching the other,
 // already-shipped call sites (Character tab, Gear tab), which simply don't
 // pass it and get the same output as before.
-function collapsibleSection(group, key, titleHtml, bodyFn, extraStyle){
+// §17 — optional 6th `extraClass` param (Part 1) lets one call site (the
+// Skill Tree header) opt into the bigger/accented .tree-header look without
+// touching the other five, which pass nothing and keep the plain look.
+function collapsibleSection(group, key, titleHtml, bodyFn, extraStyle, extraClass){
   const open = sectionOpen(group, key);
-  return `<h3 class="sub collapsible" style="${extraStyle || ""}" onclick="A.toggleUiSection('${group}','${key}')">
+  return `<h3 class="sub collapsible${extraClass ? " " + extraClass : ""}" style="${extraStyle || ""}" onclick="A.toggleUiSection('${group}','${key}')">
       <span>${titleHtml}</span><span class="car">${open ? "▾" : "▸"}</span>
     </h3>
     ${open ? bodyFn() : ""}`;
@@ -5221,12 +5312,13 @@ function panelChar(){
         <span>Run Duration <b>-${Math.round((1 - runDurationMultFor(c)) * 100)}%</b></span>
       </div>`)}
     ${collapsibleSection("charOpen", "tree",
-      `Skill Tree <span style="color:var(--gold)">&middot; ${c.skillPoints} point${c.skillPoints === 1 ? "" : "s"} available</span>`,
+      `Skill Tree <span style="background:var(--crimson);color:#fff;border-radius:var(--r-pill);
+        padding:2px 10px;font-size:12px;letter-spacing:.04em;text-transform:none;margin-left:6px">${c.skillPoints} point${c.skillPoints === 1 ? "" : "s"} available</span>`,
       () => `
       <div data-tree-branches style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">
         ${treeBranchHtml(c, "A")}${treeBranchHtml(c, "B")}${treeBranchHtml(c, "C")}
       </div>
-      ${respecButtonHtml(c)}`)}
+      ${respecButtonHtml(c)}`, "", "tree-header")}
     <button class="btn" style="margin-top:14px;margin-left:0;border-color:var(--danger);color:var(--parchment-dim)"
       onclick="A.openRetireChar()" title="Permanent — grants Renown, sends gear and inventory to the vault">
       Retire ${esc(c.name)}</button>`;
@@ -5406,7 +5498,7 @@ function inventoryToolsHtml(c){
   const total = sellable.reduce((n, it) => n + Items.sellValue(it), 0);
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
     <button class="btn" onclick="A.sortInventory()" ${c.inventory.length ? "" : "disabled"}
-      title="Reorder by item level, highest first">Sort &middot; Item Level</button>
+      title="Reorder by Power gained if equipped, biggest upgrade first">Sort &middot; Upgrade</button>
     <button class="btn" onclick="A.openSellAll()" ${sellable.length ? "" : "disabled"}
       title="${sellable.length ? "Sell everything except Uniques and Sets" : "Nothing sellable"}"
       >Sell All${sellable.length ? ` &middot; ${fmt(total)}g` : ""}</button>
@@ -6205,17 +6297,38 @@ const A = {
     document.getElementById("retireScrim").hidden = true;
   },
 
-  /* §15.3 — reorder the carried inventory in place, highest item level
-     first. Sorting the real array (rather than a display-only copy) means
-     the order sticks in the save and new drops append after it. */
+  /* §15.3 — reorder the carried inventory in place, biggest upgrade first.
+     Sorts on the SAME gearDeltaFor the item cards display, so the order and
+     the numbers can never disagree; item level is only a last-resort
+     tiebreak. Items above their level requirement sort BELOW everything
+     equippable — an unwearable piece can show a huge delta, and floating it
+     to the top would make the head of the list unactionable.
+
+     The deltas are computed once into a Map rather than inside the
+     comparator: gearDeltaFor evaluates Calc.power/maxHP against a swapped-in
+     gear copy, and a comparator would run it O(n log n) times instead of n
+     (~580 vs 90 on a full pack).
+
+     Note this ordering is relative to what's currently EQUIPPED, so it goes
+     stale once you equip something — re-click to re-sort. Deliberate: the
+     alternative is a live view that reshuffles under the cursor mid-decision. */
   sortInventory(){
     const c = activeChar();
     if (!c) return;
     mutate(() => {
-      c.inventory.sort((a, b) =>
-        (b.itemLevel - a.itemLevel)
-        || (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality))
-        || (b.power - a.power));
+      const key = new Map();
+      for (const it of c.inventory){
+        const d = gearDeltaFor(c, it) || {};
+        key.set(it, {usable: d.overLevel ? 0 : 1, dp: d.dPower || 0, dh: d.dMaxHP || 0});
+      }
+      c.inventory.sort((a, b) => {
+        const A = key.get(a), B = key.get(b);
+        return (B.usable - A.usable)
+          || (B.dp - A.dp)
+          || (B.dh - A.dh)
+          || (b.itemLevel - a.itemLevel)
+          || (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality));
+      });
     });
   },
   openSellAll(){
