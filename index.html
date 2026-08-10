@@ -1913,8 +1913,8 @@ function newCharacter(cls, name){
       restUntil: 1.0,        // 1.0 grants Rested
       onDeath: "resume",     // resume | halt
       lastZoneId: null,      // boss targets revert here after an attempt
-      // §17 — "stop after N runs". limit: 0 = off, else one of 5/10/25/50/
-      // 100 (see loopPolicyPanel). limitDone counts every run that RESOLVES
+      // §17 — "stop after N runs". limit: 0 = off, else 1-10 (see
+      // loopPolicyPanel). limitDone counts every run that RESOLVES
       // since the limit was last (re)armed — see Engine.noteRunResolved for
       // why deaths/aborts count too, not just completions. Reset to 0
       // whenever the limit is changed (A.setLoopLimit) so re-arming it
@@ -3633,7 +3633,7 @@ const Engine = {
     loop.limitDone++;
     if (loop.limitDone >= loop.limit && loop.repeat){
       loop.repeat = false;
-      chronicle(c, c.activity.ticksDone, `Run limit reached (${loop.limit}) — loop halted.`, "sys");
+      chronicle(c, c.activity.ticksDone, `Run limit reached (${loop.limit}) — queue halted.`, "sys");
     }
   },
   /* §17 — voluntary early exit from a zone run. Same accrual rule as a
@@ -4873,7 +4873,7 @@ function panelQuests(){
   // Collapsible like everything else on this tab, and defaults closed. The
   // body fn only runs when open, so the content dropdown doesn't walk all 15
   // zones + 20 bosses while collapsed.
-  if (c) out.push(collapsibleSection("questsOpen", "loopPolicy", "Loop Policy", () => loopPolicyPanel(c)));
+  if (c) out.push(collapsibleSection("questsOpen", "loopPolicy", "Quest Queue", () => loopPolicyPanel(c)));
 
   ACTS.forEach((act, actIdx) => {
     if (actIdx > 0) out.push(`<div class="act-divider"></div>`);   // 1c — visual separator between Acts
@@ -4922,17 +4922,24 @@ function loopPolicyPanel(c){
     `<option value="${v}" ${loop.restUntil===v?"selected":""}>${v===1?"100% (Rested)":Math.round(v*100)+"%"}</option>`).join("");
   const onDeathOpts = [
     {v:"resume", l:"Wait out cooldown and resume"},
-    {v:"halt",   l:"Halt loop"},
+    {v:"halt",   l:"Halt queue"},
   ].map(o => `<option value="${o.v}" ${loop.onDeath===o.v?"selected":""}>${esc(o.l)}</option>`).join("");
   // §17 — "stop after N runs". 0 = off; Engine.noteRunResolved halts the
   // loop the same way onDeath:"halt" does once loop.limitDone reaches this.
-  const limitOpts = [0,5,10,25,50,100].map(v =>
+  // Off, then every value 1-10. A save written before this list shrank may
+  // hold a limit that's no longer offered (25/50/100) — surface it as an extra
+  // option rather than dropping it, so the dropdown never displays "Off" while
+  // the loop is actually still counting down to 25. Picking any new value
+  // migrates it; nothing is mutated from render.
+  const limitChoices = [0,1,2,3,4,5,6,7,8,9,10];
+  if (loop.limit && !limitChoices.includes(loop.limit)) limitChoices.push(loop.limit);
+  const limitOpts = limitChoices.map(v =>
     `<option value="${v}" ${loop.limit===v?"selected":""}>${v===0?"Off":v}</option>`).join("");
 
   const warn = (loop.restUntil <= loop.autoRestAt && loop.autoRestAt > 0)
     ? `<div class="flavor" style="margin-top:8px;color:var(--crimson-text);font-style:normal">
          Rest-until is at or below the auto-rest trigger — resting will run to 100% instead
-         so the loop can't ping-pong.</div>`
+         so the queue can't ping-pong.</div>`
     : "";
   // §17 — progress readout, only meaningful once a limit is armed. Counts
   // every RESOLVED run (win, death, or an early-exit abort) — see
@@ -4940,7 +4947,7 @@ function loopPolicyPanel(c){
   const limitProgress = loop.limit
     ? `<div class="flavor" style="margin-top:8px;font-style:normal">
          ${loop.limitDone} / ${loop.limit} runs${(!loop.repeat && loop.limitDone >= loop.limit)
-           ? ` <span style="color:var(--crimson-text)">&middot; limit reached, loop halted</span>` : ""}</div>`
+           ? ` <span style="color:var(--crimson-text)">&middot; limit reached, queue halted</span>` : ""}</div>`
     : "";
 
   // Header is supplied by the caller via collapsibleSection (§16) — this
