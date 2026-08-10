@@ -393,6 +393,11 @@ footer.credit{
   <div class="modal" id="retireModalBody"></div>
 </div>
 
+<!-- sell-all confirmation (§15.3 inventory tools) -->
+<div class="scrim" id="sellAllScrim" hidden>
+  <div class="modal" id="sellAllModalBody"></div>
+</div>
+
 <script>
 "use strict";
 /* ==================================================================
@@ -4865,7 +4870,10 @@ function panelQuests(){
   // §16 — loop policy moved to the TOP of the tab. With everything below
   // collapsed by default the page is short; the panel a player actually
   // configures every session shouldn't sit below 5 acts of scrolling.
-  out.push(loopPolicyPanel(c));
+  // Collapsible like everything else on this tab, and defaults closed. The
+  // body fn only runs when open, so the content dropdown doesn't walk all 15
+  // zones + 20 bosses while collapsed.
+  if (c) out.push(collapsibleSection("questsOpen", "loopPolicy", "Loop Policy", () => loopPolicyPanel(c)));
 
   ACTS.forEach((act, actIdx) => {
     if (actIdx > 0) out.push(`<div class="act-divider"></div>`);   // 1c — visual separator between Acts
@@ -4935,8 +4943,9 @@ function loopPolicyPanel(c){
            ? ` <span style="color:var(--crimson-text)">&middot; limit reached, loop halted</span>` : ""}</div>`
     : "";
 
-  return `<h3 class="sub">Loop Policy</h3>
-    <div class="stub">
+  // Header is supplied by the caller via collapsibleSection (§16) — this
+  // returns the BODY only, so nothing here is built while collapsed.
+  return `<div class="stub">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
         <label style="display:block">
           <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Content</div>
@@ -5267,7 +5276,7 @@ function itemCardInner(c, it, mode){
   let affixTxt;
   if (it.quality === "unique"){
     affixTxt = it.sigDesc;
-  } else if (it.quality === "set"){
+  } else if (it.quality === "set" && SETS[it.setKey]){
     const setDef = SETS[it.setKey];
     const rolled = it.affixes.map(affixText).join(", ");
     const n = c ? setPieceCount(c, it.setKey) : 0;
@@ -5367,10 +5376,53 @@ function panelGear(){
       ${equipped}
     </div>
     <h3 class="sub">Inventory (${c.inventory.length} / ${invCap})</h3>
+    ${inventoryToolsHtml(c)}
     ${invGrid}
     <div class="flavor" style="margin-top:14px">The clan vault (${S.vault.length} / ${vaultCap}) is in the
       Clan Hall tab — shared storage lives with the rest of the clan's holdings.</div>
     ${collapsibleSection("gearOpen", "salvage", "Auto-Salvage Filter", () => salvageBodyHtml(c))}`;
+}
+
+/* §15.3 — inventory tools, above the grid. Sort is a real reorder of
+   c.inventory (so it persists in the save, and the next drop lands after the
+   sorted run rather than resetting it): item level first, then quality, then
+   Power, so the most useful thing is always at the front. Sell All is gated
+   behind a confirmation and NEVER includes Uniques or Sets — §9.7 calls
+   keeping those non-negotiable, and a one-click sweep is precisely where a
+   hard-won Unique would otherwise vanish. */
+const QUALITY_RANK = ["common", "magic", "rare", "legendary", "set", "unique"];
+function sellableInventory(c){
+  return c.inventory.filter(it => it.quality !== "unique" && it.quality !== "set");
+}
+function inventoryToolsHtml(c){
+  const sellable = sellableInventory(c);
+  const total = sellable.reduce((n, it) => n + Items.sellValue(it), 0);
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    <button class="btn" onclick="A.sortInventory()" ${c.inventory.length ? "" : "disabled"}
+      title="Reorder by item level, highest first">Sort &middot; Item Level</button>
+    <button class="btn" onclick="A.openSellAll()" ${sellable.length ? "" : "disabled"}
+      title="${sellable.length ? "Sell everything except Uniques and Sets" : "Nothing sellable"}"
+      >Sell All${sellable.length ? ` &middot; ${fmt(total)}g` : ""}</button>
+  </div>`;
+}
+function renderSellAllModal(c){
+  const el = document.getElementById("sellAllModalBody");
+  if (!el) return;
+  const sellable = sellableInventory(c);
+  const kept = c.inventory.length - sellable.length;
+  const total = sellable.reduce((n, it) => n + Items.sellValue(it), 0);
+  el.innerHTML = `
+    <h2>Sell All</h2>
+    <p>Sell <b style="color:var(--parchment)">${sellable.length} item${sellable.length===1?"":"s"}</b>
+      from ${esc(c.name)}'s pack for <b style="color:var(--gold)">${fmt(total)} gold</b>.
+      This cannot be undone.</p>
+    ${kept ? `<p><b style="color:var(--parchment)">${kept}</b> Unique or Set item${kept===1?"":"s"}
+      will be kept — those are never sold.</p>` : ""}
+    <p style="color:var(--parchment-dim)">Equipped gear and the clan vault are not affected.</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="A.cancelSellAll()">Keep Them</button>
+      <button class="btn primary" onclick="A.confirmSellAll()">Sell ${sellable.length} for ${fmt(total)}g</button>
+    </div>`;
 }
 
 /* ==================================================================
@@ -6144,6 +6196,49 @@ const A = {
       removeCharacterAt(idx);   // §16 — also fixes up S.activeChar (dangling-index guard)
     });
     document.getElementById("retireScrim").hidden = true;
+  },
+
+  /* §15.3 — reorder the carried inventory in place, highest item level
+     first. Sorting the real array (rather than a display-only copy) means
+     the order sticks in the save and new drops append after it. */
+  sortInventory(){
+    const c = activeChar();
+    if (!c) return;
+    mutate(() => {
+      c.inventory.sort((a, b) =>
+        (b.itemLevel - a.itemLevel)
+        || (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality))
+        || (b.power - a.power));
+    });
+  },
+  openSellAll(){
+    const c = activeChar();
+    if (!c || !sellableInventory(c).length) return;
+    renderSellAllModal(c);
+    document.getElementById("sellAllScrim").hidden = false;
+  },
+  cancelSellAll(){ document.getElementById("sellAllScrim").hidden = true; },
+  /* Sells the whole carried inventory EXCEPT Uniques and Sets (§9.7 — never
+     sold, not a toggle). Equipped gear and the clan vault are untouched. */
+  confirmSellAll(){
+    const c = activeChar();
+    if (!c) return;
+    mutate(() => {
+      const kept = [];
+      let gold = 0, sold = 0;
+      for (const it of c.inventory){
+        if (it.quality === "unique" || it.quality === "set"){ kept.push(it); continue; }
+        gold += Items.sellValue(it);
+        sold++;
+      }
+      c.inventory = kept;
+      if (sold){
+        S.gold += gold;
+        chronicle(c, c.activity.ticksDone,
+          `Sold ${sold} item${sold===1?"":"s"} for ${fmt(gold)} gold.`, "sys");
+      }
+    });
+    document.getElementById("sellAllScrim").hidden = true;
   },
 
   /* §3.1/§9.7/§16 Phase 8 — clan vault is shared; any character can
