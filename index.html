@@ -112,6 +112,14 @@ body{
 .slot.dead{color:var(--crimson-text)}   /* was --danger (~1.9:1, illegible) — see --danger comment */
 .slot.resting{color:var(--parchment-dim);font-style:italic}   /* §16 — dead/resting distinguishable in tabs */
 
+/* §1 — Hardcore marker, slot tabs + character card. Small, crimson-bordered,
+   reuses the palette rather than introducing a new colour. */
+.hc-badge{
+  display:inline-block;color:var(--crimson-text);font-weight:700;font-size:10px;
+  letter-spacing:.1em;border:1px solid var(--crimson);border-radius:var(--r-sm);
+  padding:1px 5px;margin-left:5px;text-transform:uppercase;vertical-align:middle;
+}
+
 /* ---------- character card ---------- */
 .card{
   background:var(--bg-raised);border:1px solid var(--line);
@@ -573,6 +581,27 @@ const BAL = {
   // §3.4 — retirement Renown: floor(level^1.8). Doc's own sanity anchors
   // (30≈450, 60≈1530, 99≈3890) are approximate; the formula is exact.
   RETIRE_RENOWN_EXP: 1.8,
+  // §1 Hardcore — a permanent per-character choice made at creation (§3.3).
+  // Both a Hardcore death AND a Hardcore character's voluntary retirement
+  // grant floor(level^1.8) x this multiplier (see retireRenownFor, which now
+  // reads c.hardcore) instead of the bare Normal formula above.
+  //
+  // Chosen so Hardcore is a real gamble, not a dominant strategy: a
+  // character who dies early gets almost nothing (a level-10 Hardcore loss
+  // is floor(10^1.8)=63 x2=126 Renown — trivial), while one who survives to
+  // push levels deep gets a payout that rivals or beats what a whole
+  // Normal-clan retirement would have granted at the SAME level, because
+  // the risk of the run ending right there is real and uninsured beyond
+  // death-insurance/T2/Tooth-of-the-First-Hound. At level 60 the multiplied
+  // payout (1530x2=3060) alone clears the 2,500-Renown Slot 2 gate; at 99
+  // (3890x2=7780) it still falls well short of Slot 3's 12,000 — so one
+  // lucky/skilled Hardcore run is a meaningful shortcut, never a full clan
+  // solved by itself. See report for the milestone-pacing table and the
+  // expected-value comparison against a Normal character reaching the same
+  // level (Normal's terminal value is bounded only by patience, since death
+  // there is a delay, not an ending — Hardcore trades that safety for the
+  // multiplier).
+  HARDCORE_RENOWN_MULT: 2,
   // §14.7 — 30% of generated names get "First the Epithet".
   NAME_EPITHET_CHANCE: 0.30,
 
@@ -661,7 +690,16 @@ const BAL = {
   // BAL.QUALITY) — Items.rollForgeQuality() excludes Set/Unique and
   // renormalizes over the remaining four, same pattern (and same Phase 11
   // one-line enable) as Items.rollQuality().
-  FORGE_GOLD_MULT: 25,
+  // Lowered 25 -> 10 (Rob, 2026-08-11). The level^2 curve made this brutal
+  // exactly when a player is poorest and irrelevant once they aren't: measured
+  // against realistic income, a craft cost 2.98 HOURS of play at Act I start,
+  // 1.80h by Act I end, but only 0.17h by late Act V. Worse, at Act I start
+  // three hours of simply RUNNING yields ~7.5 items free plus xp and gold,
+  // versus one random item here that's 65% Common-or-Magic — so the Forge was
+  // strictly worse than the thing it competes with. At x10 it lands near one
+  // run's income early (1.19h), which is what a "fill this empty slot now"
+  // service should cost.
+  FORGE_GOLD_MULT: 10,
   FORGE_QUALITY: {common:30, magic:35, rare:25, legendary:8, set:1.5, unique:0.5},
   // §13 The Mystic (Sable) — cost level^2 x 15, 2h duration (absolute
   // timestamp, §2.1), one of six buffs rolled uniformly. `stat` names the
@@ -669,7 +707,12 @@ const BAL = {
   // SUBTRACTED in classModifierFor (a reduction), every other `amount` is
   // ADDED in its *For() accumulator, same additive-stack pattern as gear/
   // passives/tree (see the TREES stacking-rule comment).
-  MYSTIC_GOLD_MULT: 15,
+  // Lowered 15 -> 5 (Rob, 2026-08-11). Same inverted curve as the Forge: 1.79
+  // hours of income at Act I start for a buff that lasts 2 hours, i.e. barely
+  // paying for itself exactly when a boost matters most, versus 0.10h late.
+  // At x5 it's ~0.6h early — a real but affordable choice — while staying
+  // trivial late, which is fine for a consumable.
+  MYSTIC_GOLD_MULT: 5,
   MYSTIC_DURATION_MS: 2 * 3600 * 1000,
   MYSTIC_BUFFS: {
     xp:          {label:"+50% XP",           stat:"xp",          amount:0.50},
@@ -682,13 +725,25 @@ const BAL = {
   // §9.2 — quality tiers. Set/Unique carry their real doc multipliers and
   // drop weights but Items.rollQuality() skips them and renormalizes the
   // rest (Phase 11 one-line enable: delete the `keys` filter there).
+  // §16 Phase 12 — set's wZone/wBoss raised 0.3->0.45 / 4->6 (+50% each)
+  // alongside the 3->6 set expansion (see SETS' header comment). The doc's
+  // own drop-weight table is the design owner's, not touched lightly, but
+  // sets doubling in count while this weight stayed flat would have cut the
+  // chance of any SPECIFIC piece roughly in half (see report's math); +50%
+  // recovers most of that (a target set piece on a boss kill goes from the
+  // pre-expansion 1.33% to 0.98%, not the 0.67% flat-doubling would have
+  // produced) without pushing Set above Legendary's own share of drops or
+  // crowding out Unique. The rest of the dilution is deliberately absorbed
+  // by Items.pickRandomSetKey's slot-aware bias (see its comment), not by
+  // raising this further — a flat weight bump can't target "the slot this
+  // character is actually missing" the way a biased roll can.
   QUALITY: {
-    common:    {mult:1.0, affixes:0, wZone:50,  wBoss:20},
-    magic:     {mult:1.3, affixes:1, wZone:30,  wBoss:25},
-    rare:      {mult:1.7, affixes:2, wZone:15,  wBoss:30},
-    legendary: {mult:2.2, affixes:3, wZone:4.5, wBoss:18},
-    set:       {mult:2.4, affixes:2, wZone:0.3, wBoss:4},   // Phase 11
-    unique:    {mult:2.6, affixes:0, wZone:0.2, wBoss:3},   // Phase 11
+    common:    {mult:1.0, affixes:0, wZone:50,   wBoss:20},
+    magic:     {mult:1.3, affixes:1, wZone:30,   wBoss:25},
+    rare:      {mult:1.7, affixes:2, wZone:15,   wBoss:30},
+    legendary: {mult:2.2, affixes:3, wZone:4.5,  wBoss:18},
+    set:       {mult:2.4, affixes:2, wZone:0.45, wBoss:6},   // Phase 11, weight raised Phase 12
+    unique:    {mult:2.6, affixes:0, wZone:0.2,  wBoss:3},   // Phase 11
   },
   // §9.4 — affix pool. All 11 ranges as given; value stored as a 0-1
   // fraction (e.g. 0.08 = "+8%"). `fmt` matches the §15.5 chronicle example
@@ -745,12 +800,22 @@ const BAL = {
   // existing multiplier seam (mitigationFor/bossDamageFor/goldFindFor/
   // runDurationMultFor). The two that DON'T (Drowned Choir 3pc regen,
   // Regalia 3pc relock skip) are boolean gates, not magnitudes, so they
-  // aren't listed here — see maybeCombatRegen and resolveBossAttempt.
+  // aren't listed here — see maybeCombatRegen and resolveBossAttempt. §16
+  // Phase 12 (sets expansion, 3->6, see SETS) adds three more numeric 2pc
+  // values the same way; their 3pc counterparts are ALSO boolean gates
+  // (Bone Terraces 3pc reuses the T2/deathDefy guaranteed-save slot, Nine-
+  // Knot 3pc reuses executeFinishMult above, Salted Road 3pc reuses
+  // hoardGoldBonus above) — see resolveTickOutcome, applyTick/forecastFor's
+  // guaranteedAvailable/guaranteedSaveEligible, Calc.tickDamage,
+  // itemFindFor/goldFindFor.
   SET_FX: {
     drownedChoirMitigation2pc: 0.15,
     lastKingBossDamage2pc: 0.25,
     ashenMarchGoldFind2pc: 0.20,
     ashenMarchDuration3pc: 0.25,
+    boneTerracesDeathInsurance2pc: 0.15,   // flat add to deathInsuranceChanceFor, clamped 0-0.5 there
+    nineKnotEvasion2pc: 0.20,              // flat evasion add below 50% HP, same shape as lowHpEvasionBonus
+    saltedRoadUniqueChance2pc: 0.05,       // flat add to uniqueChanceFor
   },
   // §9.7/§11 — auto-salvage filter option lists (UI dropdowns) and the
   // Archive-tier gate for each of the 3 rules (§11 "Archive... +1
@@ -1215,104 +1280,193 @@ function allTreeNodesWork(){
                           XP and Gold both +UNIQUE_FX.slowBurnRewardBonus,
                           this run.
    ================================================================== */
+// Text separation pass (owner request, post-Phase 11): `sigDesc` is now pure
+// mechanics — precise, player-facing rules text, no prose — and the new
+// `flavor` field carries the prose that used to be blended into it. Both
+// render on the item card (itemCardInner): sigDesc as plain rules text,
+// flavor through the existing `.flavor` class (same one zones/bosses use
+// via flavorOrHidden). See §9.5 for names, the SIGNATURE TYPES block above
+// for what each `sig` actually does, and §14/§4/§5.4 for the class/world
+// material the flavor lines draw on.
 const UNIQUES = {
   barbarian: {
     weapon: {name:"Gravemourn, Fang of the Hollow", sig:"openerCrit",
-      sigDesc:"The first blow of every run is a killing one — it remembers the First Hour and treats every fight as an opening."},
+      sigDesc:"The first tick of every run is a guaranteed critical hit.",
+      flavor:"Drawn from the hollow where Grulloch first came through, back when the First Hour still meant something only needed one blow. It has not needed a second since."},
     armor:  {name:"The Butcher's Apron", sig:"woundWard",
-      sigDesc:"Stained past cleaning. The more it's asked to take, the less it lets through."},
+      sigDesc:"Mitigation rises with HP already lost this run, up to +25% at the cap.",
+      flavor:"Made for a trade that expects blood. It has been worn long enough to stop flinching at how much."},
     relic:  {name:"Tooth of the First Hound", sig:"deathDefy",
-      sigDesc:"Once a run, a killing blow finds only the tooth, still hungry, still working."},
+      sigDesc:"Once per run, a hit that would kill instead leaves 1 HP. Shares its one guaranteed save per run with any other death-save effect you carry.",
+      flavor:"Pulled from Grulloch's jaw before the Hollow finished closing back over the wound. It is still hungry. It still works."},
   },
   sorcerer: {
     weapon: {name:"Emberquill", sig:"executeFinish",
-      sigDesc:"It writes the ending first. A boss fight's last exchange is already half-decided."},
+      sigDesc:"In a boss fight, the final tick applies at 50% effective Threat — less damage taken on the finishing blow.",
+      flavor:"It drafts the ending before the fight agrees to have one. By the time a boss notices, the page is already turning."},
     armor:  {name:"Mantle of Nine Silences", sig:"critImmune",
-      sigDesc:"Nine silences woven in. The tenth blow, the one meant to be the worst, finds no purchase."},
+      sigDesc:"Never takes critical damage.",
+      flavor:"Nine folds of ward woven in, one for every hold that fell before this one. The tenth blow, the one meant to finish it, finds nowhere left to land."},
     relic:  {name:"The Unspent Hour", sig:"deferred",
-      sigDesc:"Run duration -20%. All HP loss this run is held back and paid at once, on the final tick."},
+      sigDesc:"Run duration -20%. All HP loss for the run is deferred and applied entirely on the final tick.",
+      flavor:"Every hour spent out past the walls is an hour Emberhold doesn't get back. This one keeps the bill unopened until the very last minute."},
   },
   rogue: {
     weapon: {name:"Widow's Answer", sig:"lowHpEvasion",
-      sigDesc:"It answers only when it must — below half HP, it is very rarely where the blow lands."},
+      sigDesc:"+25% evasion while below 50% HP.",
+      flavor:"Made for the ones who came home when their partner didn't, and decided that would be the last time it happened unanswered. It answers late. It still answers."},
     armor:  {name:"Coat of Borrowed Faces", sig:"qualityBump",
-      sigDesc:"Nobody looks twice at a coat that isn't theirs. The first thing found each run is worth more than it should be."},
+      sigDesc:"The first item found each run rolls one quality tier higher. Never upgrades into Set or Unique.",
+      flavor:"Nobody looks twice at a coat that isn't theirs, and this one has worn enough faces to always know which one to borrow next."},
     relic:  {name:"Thief's Last Coin", sig:"hoard",
-      sigDesc:"Carries no weight but its own. Nothing else is worth stopping for — only the coin, and more of it."},
+      sigDesc:"Item find is set to zero. Gold find is increased by +150%.",
+      flavor:"Emberhold was too poor to be worth taking first. This one decided poverty was a problem with an obvious solution."},
   },
   necromancer: {
     weapon: {name:"Osric's Unshriven Rod", sig:"bossEcho",
-      sigDesc:"He confesses everything, and then confesses it again. A boss brought down pays out twice, one run apart."},
+      sigDesc:"Defeating a zone boss or act boss multiplies the next run's XP and Gold both by 1.75x.",
+      flavor:"Father Osric hears every confession in Emberhold twice before he lets it go. Whatever this rod collects, it collects the same way."},
     armor:  {name:"Shroud of the Patient Dead", sig:"combatMend",
-      sigDesc:"The dead are patient. Worn long enough, so is the wound underneath it."},
+      sigDesc:"Heals 1.5% of max HP every tick, unconditionally — no HP threshold, including mid-run.",
+      flavor:"The dead are in no hurry. Worn long enough, the one wearing this isn't either — the wound closes on the shroud's schedule, not the body's."},
     relic:  {name:"The Ledger of Names", sig:"graveTax",
-      sigDesc:"Every name that falls is entered once, and the ledger keeps its own accounting short."},
+      sigDesc:"On death, the revive cooldown just rolled is immediately halved.",
+      flavor:"Emberhold doesn't cheer when someone comes back. It counts. This ledger keeps its own count, and it does not like a name staying crossed out for long."},
   },
   paladin: {
     weapon: {name:"Dawnbreak", sig:"executeFinish",
-      sigDesc:"Whatever a fight against a boss is going to end with, it ends faster once this is drawn."},
+      sigDesc:"A boss fight's final tick applies at 50% effective Threat, reducing damage taken on the finishing blow.",
+      flavor:"Named for the coal Emberhold keeps burning from the old capital, the one they never let go out. This is what happens when it's finally allowed to catch."},
     armor:  {name:"Aegis of the Weeping Chapel", sig:"critImmune",
-      sigDesc:"The chapel doesn't ask how much you're bleeding before it decides to hold."},
+      sigDesc:"Immune to critical damage.",
+      flavor:"Raised from stone that sweats in the shape of words. It has never once asked how much the wearer is bleeding before deciding to hold."},
     relic:  {name:"Reliquary of Saint Kell", sig:"deathDefy",
-      sigDesc:"The saint gave everything to seal the deep. Once a run, it gives a little of it back."},
+      sigDesc:"Once per run, a killing hit leaves 1 HP instead of 0. Shares that one guaranteed save with any other death-save effect on this character.",
+      flavor:"The saint gave everything to seal the deep, six hundred years before anyone needed to ask him to again. This is the part of that giving he kept back, for exactly this."},
   },
   monk: {
     weapon: {name:"Stillwater Chain", sig:"openerEvade",
-      sigDesc:"Water isn't where you struck it. The first blow of every run finds only where you used to be."},
+      sigDesc:"The first tick of every run always evades — guaranteed zero damage on that tick.",
+      flavor:"Water isn't where you struck it a breath ago, and for one breath, neither is whoever is wearing this."},
     armor:  {name:"Wrappings of the Quiet Below", sig:"woundWard",
-      sigDesc:"Wound the quiet enough times and it stops answering the same way twice."},
+      sigDesc:"The more HP lost this run, the higher mitigation climbs, capped at +25%.",
+      flavor:"Wound the Quiet Below enough times and it stops answering the same way twice. These wrappings learned the trick from it, and kept it."},
     relic:  {name:"The Unmoving Stone", sig:"combatMend",
-      sigDesc:"The stone does not tire between blows. Held long enough, neither does what's carrying it."},
+      sigDesc:"Every tick heals 1.5% of max HP, with no HP threshold — this applies mid-run as well.",
+      flavor:"It does not tire between blows. Held long enough, neither does whatever is carrying it."},
   },
   druid: {
     weapon: {name:"Blackroot Stave", sig:"openerCrit",
-      sigDesc:"Grew wrong long before the Wake, and was welcoming even then. The first strike is never the gentle one."},
+      sigDesc:"The run's first tick always lands as a critical hit.",
+      flavor:"Cut from a hollow where the trees grew wrong long before the Wake, and welcomed what came through anyway. The first strike from it was never going to be the gentle one."},
     armor:  {name:"Bark of the Last Grove", sig:"qualityBump",
-      sigDesc:"The oldest bark keeps the best of what grew on it. The first thing found each run comes back better."},
+      sigDesc:"The first item found each run is bumped one quality tier higher, capped below Set and Unique.",
+      flavor:"The last grove keeps the best of what still grows on it. Emberhold does the same, with people."},
     relic:  {name:"Seed of Vaelmoor", sig:"slowBurn",
-      sigDesc:"Nothing this old is in a hurry. The run runs longer, and gives back more for the patience."},
+      sigDesc:"Run duration +25%. XP and Gold are both +50% for that run.",
+      flavor:"Nothing this old is in a hurry. It remembers a kingdom of nine holds, and it is still waiting to see what grows back."},
   },
   witchdoctor: {
     weapon: {name:"Hexbone Rattle", sig:"lowHpEvasion",
-      sigDesc:"It speaks loudest when the wearer is closest to not answering back — below half HP, it is rarely where the blow lands."},
+      sigDesc:"Evasion chance is +25% whenever HP is below 50%.",
+      flavor:"It rattles loudest when the one holding it is closest to not answering back. Below half breath, it is rarely where the blow expects to land."},
     armor:  {name:"Skin of Nine Pilgrims", sig:"threatSiphonZone",
-      sigDesc:"Nine pilgrims wore the road down before it noticed you were walking it. The road troubles you less for it."},
+      sigDesc:"Non-boss zone Threat is treated as 15% lower. No effect on boss fights.",
+      flavor:"Nine walked the Salted Road before anyone thought to start counting. The road troubles whoever wears this a little less, for the same reason."},
     relic:  {name:"The Counting Skull", sig:"bossEcho",
-      sigDesc:"It already knows what you're owed for the kill. It just waits a run to say so, and pays out again."},
+      sigDesc:"Winning a boss fight multiplies the next run's XP and Gold both by 1.75x.",
+      flavor:"It keeps its own tally of what a kill is worth, and it has never once settled for getting paid only the first time."},
   },
 };
+console.assert(Object.values(UNIQUES).every(cls => Object.values(cls).every(u => u.flavor && u.flavor.length > 0)),
+  "text-separation pass — every unique needs a non-empty flavor line");
 console.assert(Object.keys(UNIQUES).length === 8 && Object.values(UNIQUES).every(cls => Object.keys(cls).length === 3),
   "§9.5 — 8 classes x 3 slots = 24 uniques");
 
 /* ==================================================================
-   2g. SETS  (§9.6, §16 Phase 11)
+   2g. SETS  (§9.6, §16 Phase 11; expanded to 6 in Phase 12)
    ------------------------------------------------------------------
-   Three 3-piece sets, class-agnostic (any class can wear any set — the
+   Six 3-piece sets, class-agnostic (any class can wear any set — the
    doc's own wording). `pieces` names one item per slot so a set drop
    still gets a bleak, in-voice name rather than a generic "Set Item".
    2pc/3pc bonus TEXT here is display-only; the actual numbers live in
    BAL.SET_FX and are wired into the existing *For() seams (or, for the
-   two non-numeric 3pc effects, into maybeCombatRegen/resolveBossAttempt
-   directly) — see hasSetBonus() and its call sites.
+   non-numeric 3pc effects, directly into the shared tick-resolution/
+   engine seams — maybeCombatRegen/resolveBossAttempt for the original
+   two, resolveLethalTick's guaranteed-save slot/Calc.tickDamage/
+   itemFindFor+goldFindFor for the three added here) — see hasSetBonus()
+   and its call sites.
+
+   §16 Phase 12 — THE STRUCTURAL PROBLEM (measured, see report): with
+   only 3 gear slots and 3-piece sets, completing a set means giving up
+   ALL THREE unique signature affixes for a lower per-item power
+   multiplier (2.4x vs 2.6x) and the original bonuses (+15% mitigation,
+   +25% boss damage, +20% gold find) didn't come close to justifying
+   that. The fix has two parts:
+     1. More sets (3->6) so there's an actual choice of which build-
+        defining 3pc effect to chase, not one fixed "the set path".
+     2. 3pc bonuses that are qualitatively as strong as a unique's
+        signature affix or a T1-T15 capstone — not another percentage.
+   Bone Terraces' 3pc IS a guaranteed death-save (the same 100%-once-
+   per-run slot Tooth of the First Hound/Reliquary of Saint Kell/a T2
+   capstone occupy); Nine-Knot's 3pc IS Emberquill/Dawnbreak's boss-
+   finisher; Salted Road's 3pc IS Thief's Last Coin's full item-find-
+   for-gold-find trade. Reusing these exact mechanics (rather than
+   inventing weaker set-only versions) is what makes "give up 3 unique
+   affixes for a completed set" a real, competitive choice instead of a
+   trap — see the report for the reasoning on drop-weight compensation,
+   since doubling the set count would otherwise roughly halve the
+   chance of any specific piece.
    ================================================================== */
+// Text separation pass (owner request, post-Phase 11/12) — bonus2/bonus3
+// stay pure mechanics (tightened where the old wording was ambiguous about
+// what the number actually applies to, e.g. lastKing's boss "damage" is
+// really -Threat against bosses, per bossDamageFor); the new `flavor` field
+// carries the prose, rendered via the same `.flavor` class as everything
+// else (see itemCardInner). Flavor ties each set to the §14 act/place its
+// name already references.
 const SETS = {
   drownedChoir: {
     name:"Vestments of the Drowned Choir",
     pieces:{weapon:"Choir-Bound Blade", armor:"Choir-Bound Vestment", relic:"Choir-Bound Chime"},
-    bonus2:"+15% mitigation", bonus3:"HP regen continues during runs",
+    bonus2:"+15% mitigation", bonus3:"HP regen continues during runs (normally only while idle or resting)",
+    flavor:"Six hundred years of monks sang into the dark to keep it company. Whoever wears this is still being sung to, whether they want the company or not.",
   },
   lastKing: {
     name:"Regalia of the Last King",
     pieces:{weapon:"Crownward Glaive", armor:"Crownward Mail", relic:"Crownward Seal"},
-    bonus2:"+25% boss damage", bonus3:"Boss relock is skipped once per act",
+    bonus2:"-25% effective Threat against bosses", bonus3:"Boss relock is skipped once per act (win or lose)",
+    flavor:"Court dress from a throne that never emptied. It still expects to be obeyed, and mostly, it still is.",
   },
   ashenMarch: {
     name:"Wrack of the Ashen March",
     pieces:{weapon:"Ashen Cleaver", armor:"Ashen Wrack-Coat", relic:"Ashen Waystone"},
     bonus2:"+20% gold find", bonus3:"-25% run duration",
+    flavor:"Salvaged from the road east, mile by mile, from a march that cost more than it ever gave back. Whoever wears it learned to count the cost anyway.",
+  },
+  // §16 Phase 12 — the three sets added to fix the structural problem above.
+  boneTerraces: {
+    name:"Watch of the Bone Terraces",
+    pieces:{weapon:"Vigil-Kept Blade", armor:"Vigil-Kept Wrap", relic:"Vigil-Kept Tally"},
+    bonus2:"+15% chance a lethal tick leaves 1 HP instead of 0", bonus3:"Once per run, a lethal tick is guaranteed to leave 1 HP instead of 0",
+    flavor:"The tiers outside the walls kept growing because nobody ever lit the pyres. This was taken off someone who stood watch there anyway, long after there was anything left to watch for.",
+  },
+  nineKnot: {
+    name:"Coil of the Nine-Knot",
+    pieces:{weapon:"Nine-Knot Lash", armor:"Nine-Knot Wrap", relic:"Nine-Knot Ward"},
+    bonus2:"+20% evasion while below 50% HP", bonus3:"In a boss fight, the final tick applies at 50% effective Threat",
+    flavor:"Nine knots, one for each hold that fell before anyone thought to count them. Tying a tenth has never once helped, but the hands that made this kept tying anyway.",
+  },
+  saltedRoad: {
+    name:"Coffer of the Salted Road",
+    pieces:{weapon:"Salt-Toll Blade", armor:"Salt-Toll Coat", relic:"Salt-Toll Coffer"},
+    bonus2:"+5% unique drop chance", bonus3:"Item find set to zero; gold find +150%",
+    flavor:"Pilgrims salted that road for a thousand years to keep the dead from walking it. This is what's left of the toll they paid for a promise that didn't hold.",
   },
 };
-console.assert(Object.keys(SETS).length === 3, "§9.6 — 3 sets");
+console.assert(Object.keys(SETS).length === 6, "§9.6/§16 Phase 12 — 6 sets");
+console.assert(Object.values(SETS).every(s => s.flavor && s.bonus2 && s.bonus3),
+  "text-separation pass — every set needs flavor, bonus2 and bonus3");
 
 /* §8.3 / §14 — Act I populated in full; Acts II–V land in Phase 6.
    Zone shape is final, so Phase 6 is pure data entry. */
@@ -1872,7 +2026,7 @@ function progressFor(c){
   return c.progressByDifficulty[c.difficulty];
 }
 
-function newCharacter(cls, name){
+function newCharacter(cls, name, hardcore){
   return {
     id: "c" + Math.random().toString(36).slice(2, 9),
     name, cls,
@@ -1880,6 +2034,18 @@ function newCharacter(cls, name){
     xp: 0,
     hp: 110,                        // = maxHP at level 1
     difficulty: "normal",           // normal | nightmare | inferno
+    // §1 — a permanent per-character choice made at creation (§3.3), never
+    // toggled after. Read by retireRenownFor (Renown multiplier), Engine.
+    // revive/A.payRevive (refuse), loopPolicyPanel (hides "resume" On-death),
+    // Engine.onDeath (the whole permanent-removal branch — see there).
+    hardcore: !!hardcore,
+    // §2 Clan memorial — "deepest zone reached", updated on run completion
+    // (Engine.completeRun) for any run whose content carries a real zone
+    // (zone or zoneboss; act bosses have no zone of their own — see
+    // findContent). null until the character's first completed run. `ord`
+    // is the zone id's numeric suffix (z1..z15, sequential across acts —
+    // see ACTS), a cheap total order for "deeper than" without a lookup.
+    deepestZone: null,
     // §8.4 Phase 10 — per-character permission to SWITCH into a tier. Set
     // true the first time this character clears the Act V boss on the prior
     // tier (see resolveBossAttempt). Distinct from S.stats.nightmareUnlocked/
@@ -1913,7 +2079,12 @@ function newCharacter(cls, name){
 
     // the activity state machine — everything time-based lives here
     activity: {
-      type: "idle",          // idle | run | rest | dead
+      type: "idle",          // idle | run | rest | dead | hcdead (§1 — hcdead
+                              // is Hardcore's terminal state: set once by
+                              // Engine.onDeath, never revived, and swept out
+                              // of S.characters by Engine.advanceTo right
+                              // after the per-character loop — see there for
+                              // why the removal itself is deferred that far)
       targetId: null,
       kind: null,            // zone | zoneboss | actboss
       // Stamped at creation, NOT 0. A 0 here is falsy, and advanceChar's idle
@@ -2020,6 +2191,17 @@ function newState(){
     // panel instead, which needs no active character. Persists until the
     // next retirement; harmless to keep in the save.
     lastRetirement: null,
+    // §2 — the clan memorial. Clan-owned (S, not per-character), so it
+    // survives every character leaving the roster — the whole point.
+    // Newest-first (unshift at the two append sites: A.confirmRetire and
+    // Engine.onDeath's Hardcore branch); see memorialRowHtml/panelHall for
+    // the collapsed-by-default, capped-row render. A pre-Phase-12 save has
+    // no `memorial` key at all, so the blanket `Object.assign({}, def, data)`
+    // in migrate() leaves this at def's fresh `[]` — no special-case merge
+    // needed (it's a flat array of complete entries, not a nested object
+    // whose sub-keys need backfilling — see migrate()'s header comment for
+    // when that WOULD be required).
+    memorial: [],
     // §16 — charOpen/gearOpen back the Character-tab and Gear-tab
     // collapsible sections (collapsibleSection/A.toggleUiSection), all
     // defaulting CLOSED per the brief. Same persistence pattern as
@@ -2038,7 +2220,13 @@ function newState(){
       // Every Name Counted), keyed by achievement id. Same collapsible
       // pattern as charOpen/gearOpen above, defaulting CLOSED — the Clan
       // Hall achievements list is already long.
-      achOpen: {}},
+      achOpen: {},
+      // §2 — the memorial section, same collapsible pattern, default closed
+      // (a wholly new key inside an already-deep-merged object — see
+      // migrate()'s `merged.ui = Object.assign({}, def.ui, data.ui || {})` —
+      // so an old save's ui.hallOpen is correctly backfilled with no extra
+      // migrate() code needed).
+      hallOpen: {memorial:false}},
     // §13 Phase 10 — The Cinder Market. stock is 6 items (BAL.MARKET_STOCK_SIZE),
     // refreshAt is the ABSOLUTE epoch ms of the next hourly refresh (§2.1 —
     // never a countdown). refreshAt:0 means "never rolled" — refreshMarketIfNeeded
@@ -2147,7 +2335,9 @@ const Calc = {
     // FINAL tick lands lighter, as if the fight was already decided. Folded
     // in here (the one shared damage path) so applyTick and forecastFor's
     // two-base-value trick (see forecastFor) can never disagree about it.
-    if (isBoss && isLastTick && hasUniqueSig(c, "executeFinish")) effThreat *= BAL.UNIQUE_FX.executeFinishMult;
+    // §16 Phase 12 — Coil of the Nine-Knot 3pc reuses the exact same
+    // boss-finisher mechanic (see SETS' header comment on reuse).
+    if (isBoss && isLastTick && (hasUniqueSig(c, "executeFinish") || hasSetBonus(c, "nineKnot", 3))) effThreat *= BAL.UNIQUE_FX.executeFinishMult;
     effThreat = Math.max(0, effThreat);
     const ratio = clamp(effThreat / power, BAL.RATIO_MIN, BAL.RATIO_MAX);
     let dmg = maxHP * BAL.DMG_COEFF * Math.pow(ratio, 2);
@@ -2696,10 +2886,35 @@ const Items = {
     const pool = others.length ? others : unlocked;   // defensive — never empty, 3 starters are always unlocked
     return pool[Math.floor(Math.random() * pool.length)];
   },
-  // §9.6 — sets are class-agnostic; no bias, just pick one of the 3 uniformly.
-  pickRandomSetKey(){
+  // §9.6/§16 Phase 12 — sets are class-agnostic, but with 6 of them now
+  // (was 3) a flat uniform roll makes assembling one specific set a very
+  // long, un-steerable chase (see the SETS header comment's drop-dilution
+  // math). `forChar`/`forSlot` (both optional — falls back to the original
+  // uniform roll when either is missing, e.g. a save with no active
+  // character) bias the roll toward whichever set(s) the finding character
+  // does NOT already have THIS slot for, so a boss kill is more likely to
+  // hand over a piece that actually completes something instead of a
+  // duplicate-slot piece of a set already 2/3 assembled. 4x is deliberately
+  // strong (not a soft nudge) — it's the cheapest lever that still leaves
+  // the roll non-deterministic (a fully "missing" set isn't guaranteed,
+  // just favoured), and it directly targets the specific failure mode
+  // (wasted duplicate slots) rather than the drop RATE, which the wZone/
+  // wBoss weight bump above already addresses.
+  pickRandomSetKey(forChar, forSlot){
     const keys = Object.keys(SETS);
-    return keys[Math.floor(Math.random() * keys.length)];
+    if (!forChar || !forSlot) return keys[Math.floor(Math.random() * keys.length)];
+    const have = new Set(equippedItems(forChar)
+      .filter(it => it.quality === "set" && it.slot === forSlot)
+      .map(it => it.setKey));
+    const weights = keys.map(k => have.has(k) ? 1 : 4);
+    let total = 0;
+    for (const w of weights) total += w;
+    let r = Math.random() * total;
+    for (let i = 0; i < keys.length; i++){
+      r -= weights[i];
+      if (r <= 0) return keys[i];
+    }
+    return keys[keys.length - 1];
   },
   // §16 Phase 11 — Coat of Borrowed Faces/Bark of the Last Grove
   // (qualityBump): bump one quality tier, common->magic->rare->legendary,
@@ -2739,13 +2954,16 @@ const Items = {
     if (quality === "unique"){
       const ownerCls = Items.pickUniqueOwnerClass(opts.foundByCls, opts.forceOwnClass);
       const def = (UNIQUES[ownerCls] && UNIQUES[ownerCls][slot]) || UNIQUES.barbarian[slot];
-      return Object.assign(base, {name: def.name, affixes: [], unique: true, uniqueCls: ownerCls, sig: def.sig, sigDesc: def.sigDesc});
+      return Object.assign(base, {name: def.name, affixes: [], unique: true, uniqueCls: ownerCls, sig: def.sig, sigDesc: def.sigDesc, flavor: def.flavor});
     }
     // §9.6 Phase 11 — set: 2 rolled affixes (normal pool) plus the fixed
     // 2pc/3pc bonuses (not stored on the item — computed live off
     // setPieceCount, see hasSetBonus). Class-agnostic, so no owner roll.
+    // §16 Phase 12 — opts.forChar (optional, a live character object, NOT
+    // persisted on the item — only used to bias which of the 6 sets this
+    // roll favours, see pickRandomSetKey) threads the slot-aware bias.
     if (quality === "set"){
-      const setKey = Items.pickRandomSetKey();
+      const setKey = Items.pickRandomSetKey(opts.forChar, slot);
       const def = SETS[setKey];
       return Object.assign(base, {name: def.pieces[slot], affixes: Items.rollAffixes(q.affixes, itemLevel, difficulty), setKey});
     }
@@ -2757,9 +2975,12 @@ const Items = {
   // current caller passes excludeSpecial (Engine.rollMarketStock moved to
   // its own Items.rollMarketQuality/Items.build path, which excludes Set/
   // Unique structurally instead); kept as a general-purpose option on this
-  // shared roll rather than removed.
-  generate(itemLevel, difficulty, isBoss, foundByCls, excludeSpecial){
-    return Items.build(itemLevel, difficulty, Items.rollSlot(), Items.rollQuality(isBoss, excludeSpecial), {foundByCls});
+  // shared roll rather than removed. `forChar` (§16 Phase 12, optional) is
+  // the finding character itself — threaded through to Items.build's set
+  // slot-bias (see pickRandomSetKey); distinct from foundByCls (a bare
+  // class string, used for the UNIQUE own-class bias only).
+  generate(itemLevel, difficulty, isBoss, foundByCls, excludeSpecial, forChar){
+    return Items.build(itemLevel, difficulty, Items.rollSlot(), Items.rollQuality(isBoss, excludeSpecial), {foundByCls, forChar});
   },
   // §13 Vardun's Forge — "craft one item for a CHOSEN slot" (§13's own
   // wording), so slot is the caller's pick, not rolled. `craftingCls`
@@ -3021,7 +3242,10 @@ function goldFindFor(c, atMs){
   // §9.6/§9.5 Phase 11 — Wrack of the Ashen March 2pc, Thief's Last Coin
   // (hoard), Seed of Vaelmoor (slowBurn) — all additive, same stacking rule.
   if (hasSetBonus(c, "ashenMarch", 2)) pct += BAL.SET_FX.ashenMarchGoldFind2pc;
-  if (hasUniqueSig(c, "hoard")) pct += BAL.UNIQUE_FX.hoardGoldBonus;
+  // §16 Phase 12 — Coffer of the Salted Road 3pc reuses hoard's exact trade
+  // (see itemFindFor's matching override below) rather than inventing a
+  // weaker set-only version — see SETS' header comment.
+  if (hasUniqueSig(c, "hoard") || hasSetBonus(c, "saltedRoad", 3)) pct += BAL.UNIQUE_FX.hoardGoldBonus;
   if (hasUniqueSig(c, "slowBurn")) pct += BAL.UNIQUE_FX.slowBurnRewardBonus;
   return (1 + pct) * nextRunBonusMultFor(c, "goldFind");
 }
@@ -3041,7 +3265,8 @@ function bossDamageFor(c){
   return clamp(pct, 0, 0.9);
 }
 function uniqueChanceFor(c, atMs){
-  const pct = gearSumAffix(c, "uniqueChance") + passiveUniqueChancePctFor(c) + treeSum(c, "uniqueChance") + milestoneUniqueChancePct() + mysticBonus(c, "uniqueChance", atMs);
+  let pct = gearSumAffix(c, "uniqueChance") + passiveUniqueChancePctFor(c) + treeSum(c, "uniqueChance") + milestoneUniqueChancePct() + mysticBonus(c, "uniqueChance", atMs);
+  if (hasSetBonus(c, "saltedRoad", 2)) pct += BAL.SET_FX.saltedRoadUniqueChance2pc;   // §16 Phase 12
   // §16 Phase 9 — it's a probability, so clamp to [0,1] defensively even
   // though nothing feeds it a negative term today.
   return clamp(pct * nextRunBonusMultFor(c, "unique"), 0, 1);
@@ -3074,9 +3299,13 @@ function evasionChanceFor(c){ return clamp(treeSum(c, "evasion"), 0, 0.5); }
 // a permanent flat add to this SAME probability, distinct from T2's
 // once-per-run 100%-guaranteed save (this can trigger more than once per
 // run, at less than certain odds).
+// §16 Phase 12 — Watch of the Bone Terraces 2pc adds a flat term here, same
+// shape as T13; its 3pc is a separate, stronger guaranteed-save (see
+// Engine.applyTick/forecastFor's guaranteedAvailable/guaranteedSaveEligible).
 function deathInsuranceChanceFor(c){
   let s = treeSum(c, "deathInsurance");
   if (hasCapstoneType(c, "T13")) s += getCapstoneByType(c, "T13").def.params.bonus;
+  if (hasSetBonus(c, "boneTerraces", 2)) s += BAL.SET_FX.boneTerracesDeathInsurance2pc;
   return clamp(s, 0, 0.5);
 }
 
@@ -3144,8 +3373,42 @@ function reviveGoldCostFor(c){
   return Math.round(c.cls === "necromancer" ? base * 0.5 : base);
 }
 
-// §3.4 — retirement Renown grant. floor(level^1.8); see BAL.RETIRE_RENOWN_EXP.
-function retireRenownFor(c){ return Math.floor(Math.pow(c.level, BAL.RETIRE_RENOWN_EXP)); }
+// §3.4 — retirement Renown grant: floor(level^1.8), see BAL.RETIRE_RENOWN_EXP.
+// §1 — the SAME formula grants both a voluntary retirement (A.confirmRetire)
+// and a Hardcore death (Engine.onDeath) — a Hardcore character just has
+// BAL.HARDCORE_RENOWN_MULT folded in, whichever way they leave the roster
+// (see BAL.HARDCORE_RENOWN_MULT's comment for the reasoning/pacing math).
+function retireRenownFor(c){
+  const base = Math.floor(Math.pow(c.level, BAL.RETIRE_RENOWN_EXP));
+  return c.hardcore ? Math.floor(base * BAL.HARDCORE_RENOWN_MULT) : base;
+}
+// §3.4/§9.7/§1 — protected-items-first vault transfer: equipped gear +
+// carried inventory -> S.vault, Set/Unique sorted first so they claim vault
+// space before anything sellable, exceeding the cap by the minimum
+// necessary rather than ever being auto-sold if the vault is still full
+// when one is reached (§9.7 "non-negotiable"). Shared by voluntary
+// retirement (A.confirmRetire) and Hardcore permanent death (Engine.onDeath)
+// — same bookkeeping either way a character leaves the roster, extracted
+// here so the two call sites can't drift. Returns the vaulted/sold tally
+// A.confirmRetire already surfaces as S.lastRetirement.
+function transferGearToVault(c){
+  const items = [];
+  for (const slot in c.gear) if (c.gear[slot]) items.push(c.gear[slot]);
+  items.push(...c.inventory);
+  items.sort((x, y) => {
+    const px = (x.quality === "set" || x.quality === "unique") ? 0 : 1;
+    const py = (y.quality === "set" || y.quality === "unique") ? 0 : 1;
+    return px - py;
+  });
+  let vaulted = 0, soldGold = 0, soldCount = 0;
+  for (const item of items){
+    const protected_ = item.quality === "set" || item.quality === "unique";
+    if (S.vault.length < vaultCapFor() || protected_){ S.vault.push(item); vaulted++; }
+    else { soldGold += Items.sellValue(item); soldCount++; }
+  }
+  if (soldGold) S.gold += soldGold;   // the overflow was SOLD — the clan must actually receive the gold
+  return {vaulted, soldGold, soldCount};
+}
 
 // §6.7/§11 — Rested buff strength. A maxed Training Yard (5 tiers x +2%)
 // raises this from 0.15 to 0.25 exactly (matching §6.7/§15.3's stated
@@ -3160,8 +3423,9 @@ function restedXpMultFor(c){ return c.buffs.rested ? 1 + restedBuffFor(c) : 1; }
 function itemFindFor(c, atMs){
   // §9.5 Phase 11 — Thief's Last Coin (hoard): "carries no weight but its
   // own" — item find is zeroed outright, a full override rather than one
-  // more additive term (see BAL.UNIQUE_FX comment).
-  if (hasUniqueSig(c, "hoard")) return 0;
+  // more additive term (see BAL.UNIQUE_FX comment). §16 Phase 12 — Coffer
+  // of the Salted Road 3pc is the same trade (see goldFindFor's mirror).
+  if (hasUniqueSig(c, "hoard") || hasSetBonus(c, "saltedRoad", 3)) return 0;
   const rested = c.buffs.rested ? 1 + restedBuffFor(c) : 1;
   const pct = gearSumAffix(c, "itemFind") + passiveItemFindPctFor(c) + treeSum(c, "itemFind") + milestoneItemFindPct() + mysticBonus(c, "itemFind", atMs);
   return rested * (1 + pct) * nextRunBonusMultFor(c, "itemFind");
@@ -3204,6 +3468,8 @@ function resolveTickOutcome(c, base, hpFrac, opts, atMs){
   // first tick, same shape as the existing T6 capstone check.
   let evChance = evasionChanceFor(c);
   if (hasUniqueSig(c, "lowHpEvasion") && hpFrac < 0.5) evChance = clamp(evChance + BAL.UNIQUE_FX.lowHpEvasionBonus, 0, 0.9);
+  // §16 Phase 12 — Coil of the Nine-Knot 2pc, same shape/trigger as lowHpEvasion.
+  if (hasSetBonus(c, "nineKnot", 2) && hpFrac < 0.5) evChance = clamp(evChance + BAL.SET_FX.nineKnotEvasion2pc, 0, 0.9);
   // §5.4 T11 SECOND_WIND_EVASION (Rogue Precision, Druid Primal) — same
   // trigger/latch as T3's mitigation surge below, but adds flat Evasion
   // instead of Mitigation.
@@ -3290,6 +3556,14 @@ let digestCapture = null;
 // §16 Phase 9/§7.1 — same pattern, for achievements newly earned during a
 // catch-up window (see checkAchievements below).
 let digestAchievements = null;
+// §1/§2/§7.1 — same pattern again, for Hardcore losses during a catch-up
+// window. A Hardcore character is REMOVED from S.characters (see
+// Engine.advanceTo's sweep below), so buildAndShowDigest's normal pre/post
+// snapshot diff (keyed by character id) can't report on it — the character
+// is simply gone by the time the digest builds. Engine.onDeath pushes here
+// instead, at the moment of death, while the character object is still in
+// hand.
+let digestLosses = null;
 
 // §16 Phase 9 perf-measurement seam (see DW.benchAchievements in the
 // report) — lets verification isolate exactly what checkAchievements costs
@@ -3342,6 +3616,23 @@ const Engine = {
     let steps = 0;
     for (const c of S.characters){
       steps += Engine.advanceChar(c, now);
+    }
+    // §1 — Hardcore permanent-death sweep. Engine.onDeath marks a Hardcore
+    // character's activity "hcdead" but does NOT splice it out of
+    // S.characters itself (see that function) — the `for...of` loop directly
+    // above is still mid-iteration at that point, and splicing the array
+    // while iterating it shifts every later index down by one, silently
+    // skipping the character that lands on the just-vacated index for the
+    // REST of this same advanceTo call. Removing here instead, in its own
+    // pass AFTER the per-character loop has fully finished, side-steps that
+    // entirely. Iterated backwards so multiple removals in one pass (e.g. an
+    // offline gap where two Hardcore characters both die during catch-up)
+    // can't shift an index out from under a later splice.
+    for (let i = S.characters.length - 1; i >= 0; i--){
+      if (S.characters[i].activity.type === "hcdead"){
+        removeCharacterAt(i);
+        steps++;
+      }
     }
     // §13 Cinder Market — clan-wide, not per-character, so it advances once
     // per call rather than inside advanceChar. Absolute-timestamp hourly
@@ -3456,6 +3747,14 @@ const Engine = {
         Engine.revive(c, act.revivesAt);
         steps++;
 
+      } else if (act.type === "hcdead"){
+        // §1 — Hardcore's terminal state (set by Engine.onDeath). Nothing
+        // more ever happens to this character: no regen, no revive, no
+        // loop. Just stop advancing it — Engine.advanceTo's sweep (after
+        // the per-character loop this function is called from) removes it
+        // from S.characters entirely.
+        break;
+
       } else { // idle — try the loop FIRST, at the historical instant we went
         // idle, before touching hp/startedAt. (§7/§2.1 — this ordering
         // matters: a loop-started run/rest must be stamped with the
@@ -3514,8 +3813,14 @@ const Engine = {
     // resolveLethalTick path forecastFor also uses. §9.5 Phase 11 — Tooth of
     // the First Hound/Reliquary of Saint Kell (deathDefy) shares the SAME
     // once-per-run guaranteed-save slot as a T2 capstone (see comment on
-    // resolveLethalTick).
-    const guaranteedAvailable = (hasCapstoneType(c, "T2") || hasUniqueSig(c, "deathDefy")) && !a._savedOnce;
+    // resolveLethalTick). §16 Phase 12 — Watch of the Bone Terraces 3pc adds
+    // a THIRD source of the same slot. This exact boolean also lives in
+    // forecastFor's guaranteedSaveEligible (the one place this file
+    // duplicates a check across two call sites instead of one shared
+    // function, since applyTick needs the per-run `_savedOnce` latch and
+    // forecastFor needs the per-trial `savedOnce` latch) — if this changes,
+    // that must change identically or the forecast silently drifts.
+    const guaranteedAvailable = (hasCapstoneType(c, "T2") || hasUniqueSig(c, "deathDefy") || hasSetBonus(c, "boneTerraces", 3)) && !a._savedOnce;
     const lethal = resolveLethalTick(c, c.hp, dmg, guaranteedAvailable);
     if (lethal.usedGuaranteed) a._savedOnce = true;
     c.hp = clamp(lethal.hp, 0, maxHP);
@@ -3548,7 +3853,7 @@ const Engine = {
       let count = Math.floor(expected);
       if (Math.random() < expected - count) count++;
       for (let i = 0; i < count; i++){
-        let item = Items.generate(info.ilvl, c.difficulty, isBoss, c.cls);
+        let item = Items.generate(info.ilvl, c.difficulty, isBoss, c.cls, undefined, c);
         // §9.5 Phase 11 — Coat of Borrowed Faces/Bark of the Last Grove
         // (qualityBump): the FIRST item found each run rolls one quality
         // tier higher (never into Set/Unique — see Items.bumpQuality).
@@ -3636,6 +3941,19 @@ const Engine = {
       checkZoneBossUnlock(c, info);
     }
 
+    // §2 Clan memorial — "deepest zone reached", updated on every completed
+    // run whose content carries a real zone (zone or zoneboss both do —
+    // findContent gives both an `info.zone`; an act boss doesn't, §8.3, so
+    // it can't move this further than its act's own 3rd zone already did).
+    // `ord` is the zone id's numeric suffix (z1..z15, sequential across
+    // acts) — a cheap total order, no extra lookup table needed.
+    if (info && info.zone){
+      const ord = parseInt(info.zone.id.slice(1), 10);
+      if (!c.deepestZone || ord > c.deepestZone.ord){
+        c.deepestZone = {id: info.zone.id, name: info.zone.name, actN: info.act.n, ord};
+      }
+    }
+
     chronicle(c, a.ticksDone, `${c.name} returns to Emberhold. ${fmt(Math.round(result.xp))} XP · ${fmt(Math.round(result.gold))} gold.`, "sys");
 
     // §12 "untouched" — a zone run finished above 90% HP at on-level Threat
@@ -3665,6 +3983,33 @@ const Engine = {
     c.stats.deaths++;
     S.stats.deathsTotal++;
     chronicle(c, c.activity.ticksDone, `${c.name} falls. ${fmt(Math.round(result.xp))} XP and ${fmt(Math.round(result.gold))} gold survive with the clan.`, "sys");
+
+    // §1 — Hardcore: death is permanent. No revive, no cooldown, gear/
+    // inventory to the vault (same protected-items-first logic voluntary
+    // retirement uses — transferGearToVault), Renown at the boosted rate
+    // (retireRenownFor, folding in BAL.HARDCORE_RENOWN_MULT), a memorial
+    // entry, and the character is marked for removal. The removal itself
+    // happens in Engine.advanceTo's sweep, AFTER the per-character loop that
+    // called this — see that comment for why splicing here would be unsafe.
+    if (c.hardcore){
+      const renownGained = retireRenownFor(c);
+      addRenown(renownGained);
+      transferGearToVault(c);
+      S.memorial.unshift({
+        name: c.name, cls: c.cls, level: c.level, hardcore: true, fate: "lost",
+        runs: c.stats.runs, deaths: c.stats.deaths,
+        deepestZone: c.deepestZone ? {name: c.deepestZone.name, actN: c.deepestZone.actN} : null,
+        renown: renownGained, at: atMs,
+      });
+      chronicle(c, c.activity.ticksDone, `${c.name} does not rise again.`, "sys");
+      if (digestLosses) digestLosses.push({name: c.name, cls: c.cls, level: c.level});   // §7.1 — see comment on digestLosses
+      c.activity.type = "hcdead";
+      c.loop.repeat = false;
+      Engine.noteRunResolved(c, atMs);
+      checkAchievements(c, {});   // §12 "first_loss"/"gravebound" — death event, still fires for Hardcore
+      return;
+    }
+
     c.activity.type = "dead";
     // §9.5 Phase 11 — The Ledger of Names (graveTax): the revive cooldown
     // just rolled is immediately halved. Applied here, once, at the moment
@@ -3820,6 +4165,12 @@ const Engine = {
     return {xp: earnedXp, gold: earnedGold};
   },
   revive(c, atMs){
+    // §1 — Hardcore never reaches "dead" (Engine.onDeath routes it straight
+    // to permanent removal instead — see "hcdead"), so advanceChar's own
+    // "dead" branch can never call this for one in normal play. Refused
+    // here too, defensively, so a direct call (console/DW, or a future
+    // caller) can't revive one that's somehow still sitting in "dead".
+    if (c.hardcore) return;
     c.hp = Math.max(1, Math.floor(Calc.maxHP(c) * 0.25));   // §6.5 — both revive paths land at 25%
     S.stats.revivesTotal = (S.stats.revivesTotal || 0) + 1;   // §12 "no_one_left_behind"
     Engine.toIdle(c, atMs);
@@ -4107,7 +4458,12 @@ function forecastFor(c, targetId){
   const bossDmgPct = bossDamageFor(c), threatRedPct = threatReductionFor(c, isBoss);
   const sigFlags = ["openerCrit","openerEvade","critImmune","lowHpEvasion","deathDefy","combatMend","woundWard","deferred","executeFinish","threatSiphonZone"]
     .map(s => hasUniqueSig(c, s) ? "1" : "0").join("");
-  const setSig = ["drownedChoir","lastKing","ashenMarch"].map(k => setPieceCount(c, k)).join(",");
+  // §16 Phase 12 — extended to all 6 sets (was 3); the 3 added ones feed the
+  // Monte Carlo the same way the original 3 do (evasion/executeFinish/
+  // guaranteed-save all reachable from resolveTickOutcome/Calc.tickDamage/
+  // guaranteedSaveEligible below), so a piece-count change for ANY of them
+  // must invalidate the cache exactly like the original three.
+  const setSig = ["drownedChoir","lastKing","ashenMarch","boneTerraces","nineKnot","saltedRoad"].map(k => setPieceCount(c, k)).join(",");
   // §9.6 Phase 11 — Drowned Choir 3pc routes regenRateFor(c) into
   // maybeCombatRegen (a NEW dependency this phase introduces — before Phase
   // 11, maybeCombatRegen only read a capstone's fixed param, never
@@ -4129,7 +4485,10 @@ function forecastFor(c, targetId){
   // Calc.tickDamage); every non-final tick uses `base`, exactly as before.
   const base = Calc.tickDamage(c, info.threat, isBoss, false);
   const baseLast = isBoss ? Calc.tickDamage(c, info.threat, isBoss, true) : base;
-  const guaranteedSaveEligible = hasCapstoneType(c, "T2") || hasUniqueSig(c, "deathDefy");
+  // §16 Phase 12 — must mirror Engine.applyTick's guaranteedAvailable line
+  // (three sources, not two) exactly, or the forecast's death probability
+  // silently drifts from live play for a Bone Terraces 3pc character.
+  const guaranteedSaveEligible = hasCapstoneType(c, "T2") || hasUniqueSig(c, "deathDefy") || hasSetBonus(c, "boneTerraces", 3);
 
   const samples = new Array(FORECAST_TRIALS);
   let sum = 0, deaths = 0;
@@ -4396,11 +4755,19 @@ function snapshotForDigest(){
   };
 }
 const DIGEST_QUALITY_RANK = {common:0, magic:1, rare:2, legendary:3, set:4, unique:5};
-function buildAndShowDigest(pre, drops, elapsedMs, achievements){
+function buildAndShowDigest(pre, drops, elapsedMs, achievements, losses){
   const lines = [];
   for (const p of pre.chars){
     const c = S.characters.find(x => x.id === p.id);
-    if (!c) continue;   // retirement isn't built yet (Phase 8), but stay defensive
+    // §1/§16 Phase 12 — a Hardcore character can now legitimately vanish
+    // from S.characters DURING this catch-up window (Engine.onDeath's
+    // permanent-removal branch, swept by Engine.advanceTo) — that's not a
+    // stale-defensive case any more, it's the digest's own §1 requirement
+    // ("the away digest reflecting it"). `losses` (built from digestLosses,
+    // captured at the moment of death, before removal) covers exactly this
+    // character, right below — so skipping it HERE (no c.stats to diff
+    // against) is correct, not just defensive.
+    if (!c) continue;
     const runs = c.stats.runs - p.runs;
     const deaths = c.stats.deaths - p.deaths;
     const items = c.stats.itemsFound - p.items;
@@ -4410,6 +4777,14 @@ function buildAndShowDigest(pre, drops, elapsedMs, achievements){
     if (deaths > 0) bits.push(`${deaths} death${deaths===1?"":"s"}`);   // §7.1 example omits "0 deaths"
     bits.push(`${items} item${items===1?"":"s"}`);
     lines.push(`<div style="margin:6px 0"><b>${esc(c.name)}</b> (${esc(CLASSES[c.cls].name)}, ${lvl}) &mdash; ${bits.join(", ")}</div>`);
+  }
+  // §1/§7.1 — Hardcore losses during the catch-up window. Separate from the
+  // per-character lines above since the character it's about no longer
+  // exists to read stats off of — see digestLosses' header comment.
+  if (losses && losses.length){
+    for (const l of losses){
+      lines.push(`<div style="margin:6px 0;color:var(--crimson-text)"><b>${esc(l.name)}</b> (${esc(CLASSES[l.cls] ? CLASSES[l.cls].name : l.cls)}, Lv ${l.level}) &mdash; did not come back. Hardcore.</div>`);
+    }
   }
 
   // §7.1 "Notable" — the best Legendary/Rare found (Set/Unique will simply
@@ -4455,7 +4830,7 @@ function hideLoadingScreen(){ document.getElementById("loadingScrim").hidden = t
    losing what was typed) — deliberately NOT on S, same rule as lastTmpl:
    this must never reach the save.
    ================================================================== */
-let creationState = {cls: null, name: ""};
+let creationState = {cls: null, name: "", hardcore: false};
 // §13 Phase 10 — Town/Vardun's Forge transient UI scratch (which slot is
 // selected to craft). Not on S — must never reach the save, same rule as
 // creationState/lastTmpl.
@@ -4472,12 +4847,31 @@ function renderCreateModal(){
   const clsDesc = creationState.cls
     ? `<div class="flavor" style="margin:10px 0;font-style:normal"><b style="color:var(--crimson-text)">${esc(CLASSES[creationState.cls].passive)}</b> — ${esc(CLASSES[creationState.cls].desc)}</div>`
     : "";
+  // §1/§3.3 — Hardcore, chosen at creation, worded so the permanence and the
+  // stakes are both stated plainly rather than left to a tooltip: this is
+  // the one moment the choice can still be made.
+  const hcBlock = `
+    <div class="stub" style="margin:14px 0;border-color:${creationState.hardcore ? "var(--crimson)" : "var(--line)"}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="ph">Hardcore</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn ${!creationState.hardcore?"primary":""}" onclick="A.setCreateHardcore(false)">Normal</button>
+          <button class="btn ${creationState.hardcore?"primary":""}" onclick="A.setCreateHardcore(true)" style="${creationState.hardcore?"border-color:var(--crimson);color:var(--crimson-text)":""}">Hardcore</button>
+        </div>
+      </div>
+      <div class="flavor" style="font-style:normal;margin-top:8px">
+        ${creationState.hardcore
+          ? `<span style="color:var(--crimson-text)">Permanent.</span> If this character dies, they are gone for good — no revive, no waiting it out. Everything equipped and carried goes straight to the vault, and the clan gains Renown at a far better rate for it, whether they fall or you choose to retire them first. There is no turning this back off.`
+          : `Death is a setback here — wait it out or pay the Healer, and they're back. Switch to Hardcore for a permanent character: greater Renown when they fall or retire, and a real chance they don't get the choice.`}
+      </div>
+    </div>`;
   el.innerHTML = `
     <h2>Name a Champion</h2>
     <p>Someone has to go out. Pick who, and what they're called — the clan will remember it either way.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">${clsButtons}</div>
     ${clsDesc}
     <input id="createNameInput" maxlength="24" placeholder="Name" autocomplete="off" value="${esc(creationState.name)}">
+    ${hcBlock}
     <div class="modal-actions" style="justify-content:space-between">
       <button class="btn" onclick="A.rollCreateName()" ${creationState.cls?"":"disabled"}>Roll a Name</button>
       <div style="display:flex;gap:10px">
@@ -4496,10 +4890,12 @@ function renderRetireModal(c){
   if (!el) return;
   const renownGain = retireRenownFor(c);
   const itemCount = ["weapon","armor","relic"].reduce((n, s) => n + (c.gear[s] ? 1 : 0), 0) + c.inventory.length;
+  const hcNote = c.hardcore
+    ? ` <span style="color:var(--crimson-text)">(Hardcore rate, &times;${BAL.HARDCORE_RENOWN_MULT})</span>` : "";
   el.innerHTML = `
     <h2>Retire ${esc(c.name)}</h2>
     <p>${esc(c.name)} steps back from the road for good. This cannot be undone.</p>
-    <p>The clan gains <b style="color:var(--parchment)">${fmt(renownGain)} Renown</b>. ${itemCount}
+    <p>The clan gains <b style="color:var(--parchment)">${fmt(renownGain)} Renown</b>${hcNote}. ${itemCount}
       item${itemCount===1?"":"s"} — everything equipped and carried — go to the vault
       (auto-sold if the vault is full). ${esc(CLASSES[c.cls].name)} stays unlocked for whoever comes next,
       and the slot reopens immediately.</p>
@@ -4631,8 +5027,11 @@ function renderSlots(){
     // §16 Phase 8 — dead/resting need to read at a glance across all
     // unlocked slots (three characters can be in three different states
     // simultaneously), not just on the selected one's card.
+    // §1 — Hardcore needs the same at-a-glance read here, since it changes
+    // what "dead" even means for this slot (permanent, not a cooldown).
+    const hc = c.hardcore ? `<span class="hc-badge">HC</span>` : "";
     out.push(`<button class="slot ${i===S.activeChar?"active":""} ${dead?"dead":""} ${resting?"resting":""}"
-      onclick="A.selectChar(${i})">${esc(c.name)}${dead?" (Dead)":resting?" (Resting)":""}</button>`);
+      onclick="A.selectChar(${i})">${esc(c.name)}${hc}${dead?" (Dead)":resting?" (Resting)":""}</button>`);
   });
   // §3.2 — slot 2 at 2,500 Renown, slot 3 at 12,000. Open slots dispatch to
   // character creation (§3.3); locked ones stay inert with their gate shown.
@@ -4665,6 +5064,7 @@ function renderCard(){
   el.innerHTML = `
     <div class="card-head">
       <span class="card-name">${esc(c.name)}</span>
+      ${c.hardcore ? `<span class="hc-badge">Hardcore</span>` : ""}
       <span class="card-sub">${cls.name} &middot; <b>Lv ${c.level}</b></span>
       <span class="card-sub" style="color:var(--crimson-text)">${cls.passive}</span>
     </div>
@@ -5004,6 +5404,20 @@ function loopPolicyPanel(c){
     {v:"resume", l:"Wait out cooldown and resume"},
     {v:"halt",   l:"Halt queue"},
   ].map(o => `<option value="${o.v}" ${loop.onDeath===o.v?"selected":""}>${esc(o.l)}</option>`).join("");
+  // §1 — "resume" is meaningless for Hardcore: there is no cooldown to wait
+  // out, death removes the character outright. Disabled (not just relabeled)
+  // so it can't be picked and silently do nothing; explained inline rather
+  // than just vanishing, since a policy panel that quietly drops a field
+  // reads as a bug.
+  const onDeathBlock = c.hardcore
+    ? `<label style="display:block">
+        <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">On death</div>
+        <select disabled title="Hardcore — death is permanent, there is no cooldown to resume from"><option>Permanent (Hardcore)</option></select>
+      </label>`
+    : `<label style="display:block">
+        <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">On death</div>
+        <select onchange="A.setLoopOnDeath(this.value)">${onDeathOpts}</select>
+      </label>`;
   // §17 — "stop after N runs". 0 = off; Engine.noteRunResolved halts the
   // loop the same way onDeath:"halt" does once loop.limitDone reaches this.
   // Off, then every value 1-10. A save written before this list shrank may
@@ -5055,10 +5469,7 @@ function loopPolicyPanel(c){
           <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Rest until</div>
           <select onchange="A.setLoopRestUntil(this.value)">${restUntilOpts}</select>
         </label>
-        <label style="display:block">
-          <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">On death</div>
-          <select onchange="A.setLoopOnDeath(this.value)">${onDeathOpts}</select>
-        </label>
+        ${onDeathBlock}
         <label style="display:block">
           <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Stop after N runs</div>
           <select onchange="A.setLoopLimit(this.value)">${limitOpts}</select>
@@ -5372,15 +5783,23 @@ function itemCardInner(c, it, mode){
   // rolled affixes); a set shows its rolled affixes PLUS live piece-count
   // progress toward its 2pc/3pc bonuses (only meaningful with a character
   // in hand — `c` is null mid-retirement with an empty roster, §16 Phase 8).
-  let affixTxt;
+  // Text-separation pass — unique/set cards split into a `mechLine` (rules
+  // text: sigDesc / setDef.name+affixes+bonuses, plain parchment, same as
+  // rules text elsewhere) and a `flavorLine` (prose, rendered through the
+  // same `.flavor` class flavorOrHidden uses for zone/boss text). A plain
+  // rolled-affix item has no flavor of its own, so it keeps the original
+  // single gold affixTxt line untouched.
+  let affixTxt, mechLine, flavorLine;
   if (it.quality === "unique"){
-    affixTxt = it.sigDesc;
+    mechLine = it.sigDesc;
+    flavorLine = it.flavor;
   } else if (it.quality === "set" && SETS[it.setKey]){
     const setDef = SETS[it.setKey];
     const rolled = it.affixes.map(affixText).join(", ");
     const n = c ? setPieceCount(c, it.setKey) : 0;
-    affixTxt = `${setDef.name}${rolled ? " · " + rolled : ""} — ${n}/3 equipped `
+    mechLine = `${setDef.name}${rolled ? " · " + rolled : ""} — ${n}/3 equipped `
       + `(2pc: ${setDef.bonus2}${n >= 2 ? " ✓" : ""}; 3pc: ${setDef.bonus3}${n >= 3 ? " ✓" : ""})`;
+    flavorLine = setDef.flavor;
   } else {
     affixTxt = it.affixes.map(affixText).join(", ");
   }
@@ -5408,6 +5827,8 @@ function itemCardInner(c, it, mode){
     </div>
     ${mode !== "equipped" ? gearDeltaHtml(c, it) : ""}
     ${affixTxt ? `<div style="font-size:12px;color:var(--gold);margin-bottom:8px">${esc(affixTxt)}</div>` : ""}
+    ${mechLine ? `<div style="font-size:12px;color:var(--parchment);margin-bottom:4px">${esc(mechLine)}</div>` : ""}
+    ${flavorLine ? `<div class="flavor" style="font-size:12px;margin-bottom:8px">${esc(flavorLine)}</div>` : ""}
     <div style="display:flex;gap:6px;flex-wrap:wrap">${actions}</div>`;
 }
 // §17 — solid quality-colour border (.item-card, 2px) only on a card that
@@ -5807,6 +6228,43 @@ function achievementRowHtml(ach){
       () => achievementChecklistBodyHtml(ach), "margin:6px 0 0;font-size:12px") : ""}
   </div>`;
 }
+/* §2 — one memorial row: name, class, level reached, Hardcore or not, fate
+   (Retired/Lost), runs, deaths, deepest zone reached, Renown granted. Same
+   .stub-row shape as achievementRowHtml, deliberately terser (no progress
+   bar — these are closed books, not open goals). */
+function memorialRowHtml(m){
+  const fateColor = m.fate === "lost" ? "var(--crimson-text)" : "var(--gold)";
+  const fateLabel = m.fate === "lost" ? "Lost" : "Retired";
+  const hc = m.hardcore ? `<span class="hc-badge">HC</span>` : "";
+  const clsName = CLASSES[m.cls] ? CLASSES[m.cls].name : m.cls;
+  const zone = m.deepestZone ? `${esc(m.deepestZone.name)} (Act ${m.deepestZone.actN})` : "&mdash;";
+  return `<div class="stub" style="margin-bottom:8px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 8px">
+      <span style="font-family:var(--serif);letter-spacing:.06em">${esc(m.name)}${hc}</span>
+      <span style="color:${fateColor};font-size:11px;text-transform:uppercase;letter-spacing:.08em">${fateLabel}</span>
+    </div>
+    <div class="flavor" style="font-style:normal;font-size:12px;margin-top:4px">
+      ${esc(clsName)} &middot; Level ${m.level} &middot; ${m.runs} run${m.runs===1?"":"s"} &middot; ${m.deaths} death${m.deaths===1?"":"s"}
+      &middot; Deepest: ${zone} &middot; <b style="color:var(--parchment)">${fmt(m.renown)} Renown</b>
+    </div>
+  </div>`;
+}
+// §2 — newest first (S.memorial is unshifted at both append sites). Capped
+// at MEMORIAL_SHOW_CAP so a clan with a long history doesn't re-render
+// hundreds of rows every repaint even once the section is expanded — the
+// rest stay in the save, just not painted.
+const MEMORIAL_SHOW_CAP = 30;
+function memorialSectionHtml(){
+  if (!S.memorial.length){
+    return `<div class="flavor">Nobody has come back for good yet, and nobody has stayed out there either. The ledger is empty.</div>`;
+  }
+  const shown = S.memorial.slice(0, MEMORIAL_SHOW_CAP);
+  const rest = S.memorial.length - shown.length;
+  return `<div style="max-height:420px;overflow-y:auto;padding-right:4px">
+      ${shown.map(memorialRowHtml).join("")}
+      ${rest > 0 ? `<div class="flavor" style="text-align:center;margin-top:6px">${fmt(rest)} earlier entr${rest===1?"y":"ies"}, kept but not shown.</div>` : ""}
+    </div>`;
+}
 function panelHall(){
   const c = activeChar();
   const invCap = invCapFor(c), vaultCap = vaultCapFor();
@@ -5844,7 +6302,11 @@ function panelHall(){
     <h3 class="sub">Achievements <span style="color:var(--parchment-dim);font-size:11px">(${doneCount} / ${ACHIEVEMENTS.length})</span></h3>
     <div style="max-height:420px;overflow-y:auto;padding-right:4px">
       ${ACHIEVEMENTS.map(achievementRowHtml).join("")}
-    </div>`;
+    </div>
+
+    ${collapsibleSection("hallOpen", "memorial",
+      `Memorial <span style="color:var(--parchment-dim);font-size:11px">(${fmt(S.memorial.length)})</span>`,
+      () => `<div class="flavor" style="margin-bottom:8px">Emberhold stands. Nobody cheers for it. This is the count of who came back, and who didn't.</div>${memorialSectionHtml()}`)}`;
 }
 
 function renderChronicle(){
@@ -5996,7 +6458,10 @@ const A = {
      Mercy House; it's a plain button on the character card until then. */
   payRevive(){
     const c = activeChar();
-    if (!c || c.activity.type !== "dead") return;
+    // §1 — Hardcore never sits in "dead" (see Engine.revive's comment), but
+    // refuse on c.hardcore explicitly too — belt and suspenders against a
+    // direct call, not just a hidden button.
+    if (!c || c.activity.type !== "dead" || c.hardcore) return;
     const cost = reviveGoldCostFor(c);   // §6.5 / §4 Necromancer Undying -50%
     mutate(() => {
       if (S.gold < cost){
@@ -6204,7 +6669,7 @@ const A = {
   openCreateChar(){
     if (S.characters.length >= 3) return;
     if (S.renown < BAL.SLOT_RENOWN_GATES[S.characters.length]) return;
-    creationState = {cls: (S.unlockedClasses[0] || null), name: ""};
+    creationState = {cls: (S.unlockedClasses[0] || null), name: "", hardcore: false};
     renderCreateModal();
     document.getElementById("createScrim").hidden = false;
     const input = document.getElementById("createNameInput");
@@ -6215,6 +6680,16 @@ const A = {
     const input = document.getElementById("createNameInput");
     if (input) creationState.name = input.value;   // preserve what's typed across the rebuild
     creationState.cls = cls;
+    renderCreateModal();
+    const input2 = document.getElementById("createNameInput");
+    if (input2) input2.focus();
+  },
+  // §1/§3.3 — the Hardcore/Normal toggle in the creation modal. Same
+  // preserve-what's-typed rebuild as pickCreateClass above.
+  setCreateHardcore(v){
+    const input = document.getElementById("createNameInput");
+    if (input) creationState.name = input.value;
+    creationState.hardcore = !!v;
     renderCreateModal();
     const input2 = document.getElementById("createNameInput");
     if (input2) input2.focus();
@@ -6234,7 +6709,7 @@ const A = {
     if (S.characters.length >= 3) { document.getElementById("createScrim").hidden = true; return; }
     if (S.renown < BAL.SLOT_RENOWN_GATES[S.characters.length]) { document.getElementById("createScrim").hidden = true; return; }
     mutate(() => {
-      S.characters.push(newCharacter(creationState.cls, name.slice(0, 24)));
+      S.characters.push(newCharacter(creationState.cls, name.slice(0, 24), creationState.hardcore));
       S.activeChar = S.characters.length - 1;   // select the new arrival, same as Phase 1's confirmClanName did
     });
     document.getElementById("createScrim").hidden = true;
@@ -6255,34 +6730,16 @@ const A = {
     const c = S.characters[idx];
     if (!c) return;
     mutate(() => {
+      // §1/§3.4 — floor(level^1.8), x BAL.HARDCORE_RENOWN_MULT for a
+      // Hardcore character (retireRenownFor folds that in — Hardcore can
+      // still retire voluntarily; only DEATH is the irreversible part).
       const renownGained = retireRenownFor(c);
       addRenown(renownGained);
 
-      // §3.4/§9.7 — all equipped gear and carried inventory transfer to the
-      // vault. Vault overflow is unspecified by the doc; resolved the same
-      // way §9.7 already resolves a full CHARACTER inventory (auto-sell the
-      // overflow with a notification, run/transfer continues) rather than
-      // blocking retirement or silently discarding items. §16 Phase 11 edge
-      // case — "retiring with uniques equipped": Set/Unique items must NEVER
-      // be auto-sold (§9.7 non-negotiable), so they're sorted to claim vault
-      // space FIRST, and if the vault is genuinely full when one is reached
-      // anyway, it still goes in (exceeding the cap by the minimum
-      // necessary) rather than being sold — same resolution as Engine.payout.
-      const items = [];
-      for (const slot in c.gear) if (c.gear[slot]) items.push(c.gear[slot]);
-      items.push(...c.inventory);
-      items.sort((x, y) => {
-        const px = (x.quality === "set" || x.quality === "unique") ? 0 : 1;
-        const py = (y.quality === "set" || y.quality === "unique") ? 0 : 1;
-        return px - py;
-      });
-      let vaulted = 0, soldGold = 0, soldCount = 0;
-      for (const item of items){
-        const protected_ = item.quality === "set" || item.quality === "unique";
-        if (S.vault.length < vaultCapFor() || protected_){ S.vault.push(item); vaulted++; }
-        else { soldGold += Items.sellValue(item); soldCount++; }
-      }
-      if (soldGold) S.gold += soldGold;   // the overflow was SOLD — the clan must actually receive the gold
+      // §3.4/§9.7/§1 — all equipped gear and carried inventory transfer to
+      // the vault, protected items first (see transferGearToVault — shared
+      // with Engine.onDeath's Hardcore branch so the two never drift).
+      const {vaulted, soldGold, soldCount} = transferGearToVault(c);
 
       S.stats.retiredTotal = (S.stats.retiredTotal || 0) + 1;
       // §4/§16 — class remains unlocked: nothing to do, S.unlockedClasses is
@@ -6291,6 +6748,14 @@ const A = {
         name: c.name, cls: c.cls, level: c.level,
         renownGained, vaulted, soldCount, soldGold,
       };
+      // §2 — clan memorial entry, newest first. c is still fully valid here
+      // (removal happens below, after this read).
+      S.memorial.unshift({
+        name: c.name, cls: c.cls, level: c.level, hardcore: !!c.hardcore, fate: "retired",
+        runs: c.stats.runs, deaths: c.stats.deaths,
+        deepestZone: c.deepestZone ? {name: c.deepestZone.name, actN: c.deepestZone.actN} : null,
+        renown: renownGained, at: Date.now(),
+      });
       checkAchievements(c, {});   // §12 "six_feet" etc — before removal, c is still valid
       removeCharacterAt(idx);   // §16 — also fixes up S.activeChar (dangling-index guard)
     });
@@ -6543,6 +7008,7 @@ function finishBoot(had, now, elapsed){
     const pre = showDigest ? snapshotForDigest() : null;
     digestCapture = showDigest ? [] : null;
     digestAchievements = showDigest ? [] : null;   // §16 Phase 9/§7.1
+    digestLosses = showDigest ? [] : null;         // §1/§16 Phase 12/§7.1
 
     // §2.1 — offline catch-up runs the SAME engine as the live loop
     Engine.advanceTo(now);
@@ -6554,9 +7020,10 @@ function finishBoot(had, now, elapsed){
     // mid-catch-up chronicle line to; the digest still picks it up.
     checkAchievements(null, {});
 
-    if (showDigest) pendingDigest = {pre, drops: digestCapture, elapsed, achievements: digestAchievements};
+    if (showDigest) pendingDigest = {pre, drops: digestCapture, elapsed, achievements: digestAchievements, losses: digestLosses};
     digestCapture = null;
     digestAchievements = null;
+    digestLosses = null;
   }
   window.__bootTiming.tSimEnd = performance.now();
 
@@ -6569,7 +7036,7 @@ function finishBoot(had, now, elapsed){
   }
 
   render();
-  if (pendingDigest) buildAndShowDigest(pendingDigest.pre, pendingDigest.drops, pendingDigest.elapsed, pendingDigest.achievements);
+  if (pendingDigest) buildAndShowDigest(pendingDigest.pre, pendingDigest.drops, pendingDigest.elapsed, pendingDigest.achievements, pendingDigest.losses);
 
   // live loop — 1000ms, wall-clock driven (§2). §16 root-cause fix: only
   // rebuild the whole UI (render(), which tears down and rebuilds #panel)
@@ -6639,6 +7106,9 @@ window.DW = {
   UNIQUES, SETS, hasUniqueSig, hasSetBonus, setPieceCount, getUniqueBySig,
   equippedItems, shouldAutoSalvage, resolveTickDamageForRun, itemDropLine,
   itemCardInner, allTreeNodesWork,
+  // §1/§2/§16 Phase 12 verification seams (Hardcore + Clan Memorial + sets expansion)
+  transferGearToVault, deathInsuranceChanceFor,
+  get digestLosses(){ return digestLosses; },
 };
 
 boot();
