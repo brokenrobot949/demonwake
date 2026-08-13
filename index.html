@@ -151,6 +151,12 @@ body{
 }
 .bar-fill.rest{background:linear-gradient(180deg,#6a6459,#48443c)}
 .bar-fill.dead{background:linear-gradient(180deg,#8b1a1a,#4a0d0d)}
+/* §15.1/item 1 — XP bar under the HP bar: same .bar shell, shorter, gold
+   family (distinct from HP's crimson and the run bar's fire orange) so it
+   reads as its own thing at a glance. */
+.bar.xpbar{height:8px;margin-top:5px}
+.bar.xpbar .bar-label{font-size:8px;padding:0 6px}
+.bar-fill.xp{background:linear-gradient(180deg,#e8c66e,#d4a843 60%,#a9822f)}
 .bar-label{
   position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;
   padding:0 8px;font-size:11px;letter-spacing:.06em;
@@ -205,6 +211,10 @@ h3.sub.tree-header{font-size:16px;letter-spacing:.16em;color:var(--crimson-text)
    comment). Empty equipped slots keep the plain .stub dashed border — only
    cards WITH an item get this class. */
 .item-card{border-style:solid;border-width:2px}
+/* item 2 — an EQUIPPED set piece glows only once it's actually contributing
+   a bonus (2+ of that set equipped, see itemCard's hasSetBonus check). A
+   lone 1/3 piece keeps the plain quality-colour border above, no glow. */
+.item-card.set-glow{box-shadow:0 0 7px 1px var(--q-set)}
 
 /* §16 Quests tab rework — collapsible zone/zone-boss/act-boss rows
    (questRowHtml). Row itself is the always-visible "collapsed" state; hover
@@ -578,6 +588,10 @@ const BAL = {
   // on CLAN Renown (S.renown), read by both renderSlots and A.openCreateChar
   // so the two can never drift apart.
   SLOT_RENOWN_GATES: [0, 2500, 12000],
+  // item 4 (Quest Queue) — owner spec change 2026-08-12: cap a character's
+  // built chain at 10 entries. UI-only limit, not a reward/damage number —
+  // A.queueAdd refuses past it (button disabled with the count shown).
+  QUEUE_CHAIN_CAP: 10,
   // §3.4 — retirement Renown: floor(level^1.8). Doc's own sanity anchors
   // (30≈450, 60≈1530, 99≈3890) are approximate; the formula is exact.
   RETIRE_RENOWN_EXP: 1.8,
@@ -2113,22 +2127,24 @@ function newCharacter(cls, name, hardcore){
       _qualityBumpUsed: false,
     },
 
-    // §7 loop policy
+    // §7/item 4 — the Quest Queue. `chain` is the ordered {id, kind} list
+    // the player builds (A.queueAdd/queueRemove/queueClear) and, once
+    // committed, the list of entries NOT YET STARTED (Engine.tryStartLoop
+    // shifts an entry off the front when it begins that run — the entry
+    // currently running lives in c.activity, not here). Capped at
+    // BAL.QUEUE_CHAIN_CAP entries by A.queueAdd. `active` is false while
+    // just being built (nothing runs — "Start Queue" is what flips it) and
+    // again once the chain finishes or is stopped/cleared; while true it's
+    // what Engine.tryStartLoop actually gates on. A chain runs once through
+    // in order and stops — no repeat/limit mechanic (owner spec change
+    // 2026-08-12; see report). Repetition is the player's own job: queue
+    // the same zone twice.
     loop: {
-      repeat: false,
-      contentId: null,
+      chain: [],
+      active: false,
       autoRestAt: 0,         // 0 = off, else fraction of maxHP
       restUntil: 1.0,        // 1.0 grants Rested
-      onDeath: "resume",     // resume | halt
-      lastZoneId: null,      // boss targets revert here after an attempt
-      // §17 — "stop after N runs". limit: 0 = off, else 1-10 (see
-      // loopPolicyPanel). limitDone counts every run that RESOLVES
-      // since the limit was last (re)armed — see Engine.noteRunResolved for
-      // why deaths/aborts count too, not just completions. Reset to 0
-      // whenever the limit is changed (A.setLoopLimit) so re-arming it
-      // actually re-arms it.
-      limit: 0,
-      limitDone: 0,
+      onDeath: "resume",     // resume | halt — halt discards the rest of the chain (see Engine.onDeath)
     },
 
     // Phase 7 — nextRunBonus: {stat, mult} set by T1/T4 capstones, consumed
@@ -2697,11 +2713,10 @@ function resolveBossAttempt(c, a, info, won){
   } else {
     progressFor(c).actBossKillsSinceAttempt[info.act.n] = 0;
   }
-  // §7 — boss content can never be the repeat target; revert to the last
-  // zone run once the (single) attempt resolves. Live and offline catch-up
-  // both go through this same call, so this satisfies "works identically
-  // offline" for free.
-  if (c.loop.contentId === bossId) c.loop.contentId = c.loop.lastZoneId;
+  // item 4 — a boss that just relocked has nothing more to revert to: it
+  // was already SHIFTED off loop.chain the moment Engine.beginRun started
+  // this attempt (see tryStartLoop), so the chain simply moves on to
+  // whatever entry is next, live or offline alike.
 
   if (!won) return;
 
@@ -3964,7 +3979,6 @@ const Engine = {
     const onLevel = !!(info && a.kind === "zone" && c.level >= info.band[0] && c.level <= info.band[1]);
     checkAchievements(c, {untouched: onLevel && hpFracNow > 0.9});
 
-    Engine.noteRunResolved(c, atMs);   // §17 — a completion is a resolved attempt for the run-limit counter
     Engine.toIdle(c, atMs);
   },
   onDeath(c, atMs){
@@ -4004,8 +4018,11 @@ const Engine = {
       chronicle(c, c.activity.ticksDone, `${c.name} does not rise again.`, "sys");
       if (digestLosses) digestLosses.push({name: c.name, cls: c.cls, level: c.level});   // §7.1 — see comment on digestLosses
       c.activity.type = "hcdead";
-      c.loop.repeat = false;
-      Engine.noteRunResolved(c, atMs);
+      // item 4 — "a Hardcore character dying ends everything" (they're
+      // removed from the roster right after this, in Engine.advanceTo's
+      // sweep — clearing here is just save hygiene, nothing reads it again).
+      c.loop.chain = [];
+      c.loop.active = false;
       checkAchievements(c, {});   // §12 "first_loss"/"gravebound" — death event, still fires for Hardcore
       return;
     }
@@ -4017,59 +4034,36 @@ const Engine = {
     // read by the UI for display outside of a death event — see panelChar).
     const cd = hasUniqueSig(c, "graveTax") ? reviveCooldownFor(c) * BAL.UNIQUE_FX.graveTaxHalving : reviveCooldownFor(c);
     c.activity.revivesAt = atMs + cd;   // §6.5 seam
-    // §7 "On death: Halt loop" — revival itself is unconditional (§6.5), but
-    // a halted loop must not resume grinding on its own. Reusing `repeat`
-    // (rather than a separate flag) means the UI toggle and the halted state
-    // are the same bit — the player sees Repeat flip to Off and can re-enable
-    // it manually. Also caps the death-spiral case (resume + auto-rest off):
-    // "resume" leaves repeat on and the character can die again immediately
-    // at 25% HP, but each cycle costs a real revive cooldown, so total
-    // cycles across any gap are bounded by elapsed / reviveCooldownFor(c) —
-    // nowhere near BAL.MAX_SIM_STEPS even for a 1-year gap.
-    if (c.loop.onDeath === "halt") c.loop.repeat = false;
-    // §17 — a death is a resolved attempt too, and MUST count toward the run
-    // limit even though it isn't a "completion": onDeath:"resume" leaves
-    // repeat on, so a character that keeps dying would otherwise never hit
-    // a limit that only counted wins — the exact runaway this feature
-    // exists to cap. See Engine.noteRunResolved.
-    Engine.noteRunResolved(c, atMs);
+    // item 4/§7 "On death: Halt queue" — revival itself is unconditional
+    // (§6.5), but a halted queue must not resume grinding on its own.
+    // "halt" discards the REST of the chain outright (owner spec change
+    // 2026-08-12 — there's no repeat bit left to flip off); "resume" (the
+    // default) leaves the chain exactly as it was, so Engine.tryStartLoop
+    // picks up where it left off once the character revives.
+    if (c.loop.onDeath === "halt"){
+      c.loop.chain = [];
+      c.loop.active = false;
+    }
     checkAchievements(c, {});   // §12 "first_loss"/"gravebound" — death event
   },
-  /* §17 — "stop after N runs". Called once per RESOLVED run — a completion
-     (completeRun), a death (onDeath), or a manual early exit (abortRun) —
-     never per tick. Counting completions only would let onDeath:"resume"
-     loop forever on a character that keeps dying before it ever
-     "completes" a run; counting every resolution (win, death, OR abort)
-     is what actually bounds the loop. Mirrors "On death: Halt loop"
-     (loop.repeat = false) so both halt paths are visible the same way —
-     the player sees Repeat flip to Off and can re-arm it (which also
-     resets limitDone — see A.setLoopLimit). Must be called BEFORE
-     Engine.toIdle/the "dead" transition wipes anything this needs (only
-     c.loop and c.activity.ticksDone, for the chronicle line, are read). */
-  noteRunResolved(c, atMs){
-    const loop = c.loop;
-    if (!loop.limit) return;
-    loop.limitDone++;
-    if (loop.limitDone >= loop.limit && loop.repeat){
-      loop.repeat = false;
-      chronicle(c, c.activity.ticksDone, `Run limit reached (${loop.limit}) — queue halted.`, "sys");
-    }
-  },
-  /* §17 — voluntary early exit from a zone run. Same accrual rule as a
-     death (§6.5): payout() first, so everything earned before the abort is
-     kept, THEN toIdle. Unlike completeRun this does NOT touch
+  /* Voluntary early exit from a zone run. Same accrual rule as a death
+     (§6.5): payout() first, so everything earned before the abort is kept,
+     THEN toIdle. Unlike completeRun this does NOT touch
      progressFor(c).zoneClears — an aborted run must not advance the 3-run
      zone-boss unlock gate, same as a death. Zone runs only: bosses have no
      abort control (owner call, §7) — refuse here too, not just by hiding
-     the UI button, so a direct call can't bypass that. Still counts toward
-     the run limit (an abort IS a resolved attempt) via noteRunResolved. */
+     the UI button, so a direct call can't bypass that. Ending the chain
+     itself (item 4 — "stopping the current activity ends the whole
+     chain") is the CALLER's job (A.abortRun), not this engine seam — this
+     function mirrors the pre-Quest-Queue behaviour exactly (abort this one
+     run, nothing more) so a direct/offline call here never has a
+     surprising side effect on c.loop. */
   abortRun(c, atMs){
     const a = c.activity;
     if (a.type !== "run" || a.kind !== "zone") return false;
     const result = Engine.payout(c, atMs);
     chronicle(c, a.ticksDone,
       `${c.name} breaks off the run early. ${fmt(Math.round(result.xp))} XP and ${fmt(Math.round(result.gold))} gold banked.`, "sys");
-    Engine.noteRunResolved(c, atMs);
     Engine.toIdle(c, atMs);
     return true;
   },
@@ -4196,10 +4190,23 @@ const Engine = {
      is forced to 100% instead of the configured restUntil — 100% is always
      strictly greater than every auto-rest option (the highest is 60%), so
      hp is guaranteed to clear the trigger threshold and the ping-pong cannot
-     occur. See DW-exercised termination test in the report. */
+     occur. See DW-exercised termination test in the report.
+
+     item 4 (Quest Queue) — `loop.chain` replaces the old single
+     `loop.contentId` repeat target: an ORDERED array of {id, kind} entries,
+     consumed from the front (Engine.beginRun below is what actually starts
+     one; this only picks which). Gated on `loop.active` (set by
+     A.startQueue, cleared once the chain empties or is stopped/cleared —
+     never on `loop.repeat`, which no longer exists per the owner's
+     2026-08-12 spec change: a chain runs once through, in order, then the
+     character goes idle). A queued boss that's relocked by the time the
+     chain reaches it is SKIPPED (chronicled, not stalled) — the while loop
+     below walks past any number of consecutive skippable entries in one
+     call so offline catch-up can't get stuck waiting a tick that never
+     fires for a target that will never unlock again on its own. */
   tryStartLoop(c, now){
     const loop = c.loop;
-    if (!loop.repeat || !loop.contentId) return false;
+    if (!loop.active) return false;
 
     const maxHP = Calc.maxHP(c);
     const hpFrac = maxHP > 0 ? c.hp / maxHP : 1;
@@ -4216,32 +4223,50 @@ const Engine = {
       return true;
     }
 
-    const info = findContent(loop.contentId, c.difficulty);
-    if (!info) return false;
-
-    if (info.kind === "zone"){
-      if (!progressFor(c).zoneUnlocked[loop.contentId]) return false;
-      Engine.beginRun(c, loop.contentId, "zone", now);
-      return true;
+    // HANG GUARD #2 — a chain that's entirely locked bosses (e.g. every
+    // zone that would unlock them was never queued) would otherwise skip
+    // every entry, find the chain empty, and — since there's no repeat
+    // refill any more — just fall through to `active = false` below and
+    // return false, which is safe. The guard exists for the offline-replay
+    // case instead: without it, a chain with N consecutive locked entries
+    // costs N loop iterations in a single call, which is bounded by the
+    // chain's own (capped, BAL.QUEUE_CHAIN_CAP) length anyway — this cap is
+    // just the explicit, obviously-safe bound rather than an implicit one.
+    // Skip lines are buffered, not chronicled immediately: Engine.beginRun
+    // (below) does `c.chronicle = []` at the start of every run (§15.5), so
+    // a "locked — skipped" line written INSIDE this loop would be wiped the
+    // instant the very next entry actually starts, in this same call — the
+    // player would never see it. Flushed after beginRun (post-clear) or
+    // before the "queue is complete" line (no clear happens on that path)
+    // so they always survive into whichever chronicle is left standing.
+    let guard = 0;
+    const skipped = [];
+    while (loop.chain.length && guard++ <= BAL.QUEUE_CHAIN_CAP){
+      const entry = loop.chain[0];
+      const info = findContent(entry.id, c.difficulty);
+      if (info && entry.kind === "zone" && progressFor(c).zoneUnlocked[entry.id]){
+        loop.chain.shift();
+        Engine.beginRun(c, entry.id, "zone", now);
+        for (const s of skipped) chronicle(c, 0, s, "sys");
+        return true;
+      }
+      if (info && (entry.kind === "zoneboss" || entry.kind === "actboss") && progressFor(c).bossUnlocked[entry.id]){
+        loop.chain.shift();
+        Engine.beginRun(c, entry.id, entry.kind, now);
+        for (const s of skipped) chronicle(c, 0, s, "sys");
+        return true;
+      }
+      // Locked (a queued boss relocked before the chain reached it — §8.2
+      // rule 4) or a stale/unrecognized id — skip it and keep walking.
+      loop.chain.shift();
+      if (info) skipped.push(`${info.name} is locked — skipped in the queue.`);
     }
-
-    // §7 — a boss CAN be set as the loop target (Content selector offers
-    // unlocked bosses too, §6e), but it relocks after its one attempt and
-    // resolveBossAttempt reverts loop.contentId to lastZoneId immediately
-    // on resolution — so by the time tryStartLoop runs again the target is
-    // already back to a zone. This branch only fires for that single
-    // attempt. Defensive fallback below covers the case where the stored
-    // target is a boss that's ALREADY relocked (e.g. an old save, or a
-    // manually-edited state) — falls through to the last zone run instead
-    // of stalling the loop for the rest of an offline gap.
-    if (progressFor(c).bossUnlocked[loop.contentId]){
-      Engine.beginRun(c, loop.contentId, info.kind, now);
-      return true;
-    }
-    if (loop.lastZoneId && progressFor(c).zoneUnlocked[loop.lastZoneId]){
-      loop.contentId = loop.lastZoneId;
-      Engine.beginRun(c, loop.lastZoneId, "zone", now);
-      return true;
+    // Chain exhausted (or the guard tripped on an all-locked remainder) —
+    // item 4: a queue runs once through and stops, no repeat.
+    for (const s of skipped) chronicle(c, 0, s, "sys");
+    if (loop.active){
+      loop.active = false;
+      chronicle(c, 0, `${c.name}'s queue is complete.`, "sys");
     }
     return false;
   },
@@ -4257,9 +4282,6 @@ const Engine = {
     const interval = BAL.TICK_MINUTES * 60000 * runDurationMultFor(c, atMs);
     const ticksTotal = kind === "zone" ? BAL.ZONE_TICKS
       : kind === "zoneboss" ? BAL.ZONE_BOSS_TICKS : BAL.ACT_BOSS_TICKS;
-    // §7 — bosses revert to the last zone run after an attempt (Phase 6);
-    // maintained here now so that seam is ready.
-    if (kind === "zone") c.loop.lastZoneId = targetId;
     c.chronicle = [];  // §15.5 — clear at the start of each run
     c.activity = {
       type: "run", targetId, kind,
@@ -4687,6 +4709,31 @@ function migrate(data){
     const m = Object.assign({}, d, c);
     m.activity = Object.assign({}, d.activity, c.activity || {});
     m.loop     = Object.assign({}, d.loop,     c.loop     || {});
+    // item 4 Quest Queue migration (owner spec change 2026-08-12) — a
+    // pre-Quest-Queue save has loop.contentId (a single repeat target) and
+    // loop.repeat/limit/limitDone, none of which the new schema has; the
+    // generic merge above already carries those STRAY keys into m.loop
+    // (Object.assign includes every key from either source), so they must
+    // be deleted explicitly — left in place they'd linger in the save
+    // forever, unread, exactly the "dead fields" the owner called out.
+    // d.loop's pristine chain:[]/active:false (assigned above) is already
+    // correct for a save with no contentId, or a POST-Quest-Queue save
+    // whose chain is legitimately empty (finished/cleared) — only seed a
+    // one-entry chain when the OLD save's raw contentId is set AND it
+    // hasn't already been superseded by a real saved chain. `active`
+    // mirrors the old repeat bit once, at migration time only: an old
+    // character that was actively repeating keeps running (through this
+    // one entry, once — no more repeat) rather than silently going idle.
+    if (c.loop && c.loop.contentId && !(c.loop.chain && c.loop.chain.length)){
+      const info = findContent(c.loop.contentId);
+      m.loop.chain = [{id: c.loop.contentId, kind: info ? info.kind : "zone"}];
+      m.loop.active = !!c.loop.repeat;
+    }
+    delete m.loop.contentId;
+    delete m.loop.repeat;
+    delete m.loop.lastZoneId;
+    delete m.loop.limit;
+    delete m.loop.limitDone;
     // §8.4 Phase 10 — restructure c.progress (flat, pre-Phase-10) into
     // c.progressByDifficulty (per-tier). A save already on the new shape
     // just gets its per-tier records defaulted/filled the normal way; an
@@ -4958,6 +5005,14 @@ function renderLive(){
   const hpText = document.getElementById("hpBarText");
   if (hpText) hpText.textContent = `${fmt(c.hp)} / ${fmt(maxHP)}`;
 
+  // item 1 — XP bar, same in-place patch pattern as HP above.
+  const xpNeed = Calc.xpToNext(c.level);
+  const xpPct = xpNeed > 0 ? clamp(c.xp / xpNeed * 100, 0, 100) : 0;
+  const xpFill = document.getElementById("xpBarFill");
+  if (xpFill) xpFill.style.width = xpPct + "%";
+  const xpText = document.getElementById("xpBarText");
+  if (xpText) xpText.textContent = `${fmt(c.xp)} / ${fmt(xpNeed)}`;
+
   const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   setTxt("statPower", fmt(Calc.power(c)));
   setTxt("statGold", fmt(S.gold));
@@ -5016,6 +5071,13 @@ function renderLive(){
       if (myst) myst.textContent = fmtDur(Math.max(0, c.buffs.mystic.expiresAt - now));
     }
   }
+  // item 4 — Quest Queue countdown, same "only patch it if that section is
+  // actually open" pattern as the Town tab above; queueCountdownTxt only
+  // exists in the DOM while loopPolicyPanel's chain block is rendered.
+  if (S.ui.tab === "quests"){
+    const qc = document.getElementById("queueCountdownTxt");
+    if (qc) qc.textContent = fmtDur(queueRemainingMs(c, now));
+  }
 }
 
 function renderSlots(){
@@ -5059,6 +5121,7 @@ function renderCard(){
 
   const maxHP = Calc.maxHP(c), hpPct = Calc.hpFrac(c) * 100;
   const xpNeed = Calc.xpToNext(c.level);
+  const xpPct = xpNeed > 0 ? clamp(c.xp / xpNeed * 100, 0, 100) : 0;
   const cls = CLASSES[c.cls];
 
   el.innerHTML = `
@@ -5072,6 +5135,13 @@ function renderCard(){
     <div class="bar">
       <div class="bar-fill hp ${hpPct<50?"hurt":""}" style="width:${hpPct}%" id="hpBarFill"></div>
       <div class="bar-label"><span>HP</span><span id="hpBarText">${fmt(c.hp)} / ${fmt(maxHP)}</span></div>
+    </div>
+    <!-- item 1 — XP progress to next level, smaller bar directly under HP.
+         Patched live by renderLive() (xpBarFill/xpBarText ids), same pattern
+         as the HP bar above, so it never looks frozen between full renders. -->
+    <div class="bar xpbar">
+      <div class="bar-fill xp" style="width:${xpPct}%" id="xpBarFill"></div>
+      <div class="bar-label"><span>XP</span><span id="xpBarText">${fmt(c.xp)} / ${fmt(xpNeed)}</span></div>
     </div>
 
     <div class="statline">
@@ -5090,15 +5160,23 @@ function renderCard(){
     <div id="recoveryWrap">${recoveryControls(c)}</div>`;
 }
 
-/* §17 — end a zone run early, next to the run progress bar. Zone runs
-   only: zone bosses and act bosses get no abort control at all (owner
-   call, §7) — the button is simply absent for a.kind !== "zone", not
-   just disabled. No confirmation dialog per the brief. */
+/* §17/item 4 — end a zone run early, next to the run progress bar. Zone
+   runs only: zone bosses and act bosses have no abort control at all
+   (owner call, §7) — but item 4 asks that this be LEGIBLE rather than a
+   button that mysteriously isn't there, since stopping now also ends the
+   whole Quest Queue chain, not just this one run. So a boss run shows a
+   disabled button explaining why, instead of nothing. No confirmation
+   dialog per the brief. */
 function abortRunButtonHtml(c){
   const a = c.activity;
-  if (a.type !== "run" || a.kind !== "zone") return "";
+  if (a.type !== "run") return "";
+  if (a.kind !== "zone"){
+    return `<button class="btn" disabled style="margin-top:8px" title="Boss encounters cannot be stopped early — they only resolve by winning or dying">
+      End Run Early &middot; Unavailable (Boss)</button>`;
+  }
+  const queueNote = c.loop.active ? "; this also ends the queue — the remaining entries are discarded" : "";
   return `<button class="btn" style="margin-top:8px" onclick="A.abortRun()"
-    title="Keeps everything earned so far; does not count as a zone clear">End Run Early</button>`;
+    title="Keeps everything earned so far; does not count as a zone clear${queueNote}">End Run Early${c.loop.active ? " (ends queue)" : ""}</button>`;
 }
 
 // §6.7 — Rested is shown until consumed by the next run, not just while idle.
@@ -5216,8 +5294,25 @@ function zoneBossLockMsg(c, z){
   const remaining = Math.max(1, need - (progressFor(c).zoneClears[z.id] || 0));
   return `Clear ${z.name} ${remaining} more time${remaining === 1 ? "" : "s"}.`;
 }
+// item 3 — plain "A, B and C" join (no Oxford comma, matches this file's
+// existing comma-join style elsewhere, e.g. affixTxt in itemCardInner).
+function joinNames(names){
+  if (names.length <= 1) return names.join("");
+  return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+}
 function actBossLockMsg(c, act){
-  if (!progressFor(c).actBossEverUnlocked[act.n]) return "Defeat all 3 zone bosses.";
+  // item 3 — the INITIAL unlock (§8.2 rule 2) names the specific zone
+  // bosses this character hasn't yet beaten, by name, instead of the
+  // generic "all 3". Reads the same lifetime progressFor(c).bossKills
+  // counter checkActBossUnlock's own `allThree` check does, just inverted
+  // to report what's still missing — the two can never drift apart.
+  if (!progressFor(c).actBossEverUnlocked[act.n]){
+    const remaining = act.zones.filter(z => !((progressFor(c).bossKills[z.boss.id] || 0) >= 1)).map(z => z.boss.name);
+    return remaining.length ? `Defeat ${joinNames(remaining)}.` : "Defeat all 3 zone bosses.";
+  }
+  // Re-open (§8.2 rule 4) — any 3 zone-boss defeats since the last attempt,
+  // repeats allowed, so naming specific bosses wouldn't be accurate here;
+  // left as the count it always was.
   const remaining = Math.max(1, 3 - (progressFor(c).actBossKillsSinceAttempt[act.n] || 0));
   return `Defeat ${remaining} more zone boss${remaining === 1 ? "" : "es"}.`;
 }
@@ -5282,12 +5377,17 @@ function questRowHtml(key, label, name, threat, extra, statusChip, sendBtnHtml, 
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0;flex:1">
       <span class="car" style="font-size:11px;color:var(--parchment-dim)">${open ? "▾" : "▸"}</span>
       <span class="ph" style="margin:0">${esc(label)}</span>
-      <span style="font-family:var(--serif);letter-spacing:.06em;color:var(--parchment)">${esc(name)}${isLoop ? ` <span style="color:var(--crimson-text);font-size:11px" title="Current loop target">&#9670;</span>` : ""}</span>
+      <span style="font-family:var(--serif);letter-spacing:.06em;color:var(--parchment)">${esc(name)}${isLoop ? ` <span style="color:var(--crimson-text);font-size:11px" title="Queued in the Quest Queue">&#9670;</span>` : ""}</span>
       <span style="font-size:12px;color:var(--parchment-dim)">Threat ${fmt(threat)} &middot; ${esc(extra)}</span>
       ${statusChip}
     </div>
     <div onclick="event.stopPropagation()">${sendBtnHtml}</div>
   </div>`;
+}
+// item 4 — replaces the old single `loop.contentId` comparison: is this
+// content anywhere in the character's built/running chain right now?
+function inQueue(c, id){
+  return !!(c && c.loop.chain.some(e => e.id === id));
 }
 /* One zone plus its adjacent zone boss (§15.3 "zone bosses adjacent to
    their zone") — independently collapsible per 1b, kept in the same .stub
@@ -5299,7 +5399,6 @@ function zoneBlockHtml(c, act, z, diffKey){
   const [bandLo, bandHi] = actLevelBand(act, diffKey);
   const zoneThreat = z.threat * threatMultFor(diffKey);
   const bossThreat = z.threat * 1.4 * threatMultFor(diffKey);
-  const loopId = c && c.loop.contentId;
 
   const zoneBody = !sectionOpen("questsOpen", z.id) ? "" : `<div style="margin-top:8px">
       ${flavorOrHidden(unlocked, z.flavor)}
@@ -5312,13 +5411,13 @@ function zoneBlockHtml(c, act, z, diffKey){
 
   return `<div class="stub" style="margin-bottom:10px${unlocked ? "" : ";opacity:.5"}">
     ${questRowHtml(z.id, `Zone ${z.id.slice(1)}`, z.name, zoneThreat, `Levels ${bandLo}–${bandHi}`,
-      questStatusChip(c, unlocked), zoneSendButton(c, z, unlocked), loopId === z.id, false)}
+      questStatusChip(c, unlocked), zoneSendButton(c, z, unlocked), inQueue(c, z.id), false)}
     ${zoneBody}
     <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
       ${questRowHtml(z.boss.id, "Zone Boss", z.boss.name, bossThreat,
         bossUnlocked ? "Unlocked" : (c ? zoneBossLockMsg(c, z) : "Locked"),
         questStatusChip(c, bossUnlocked), bossSendButton(c, z.boss.id, "zoneboss", bossUnlocked, c ? zoneBossLockMsg(c, z) : "Locked"),
-        loopId === z.boss.id, !bossUnlocked)}
+        inQueue(c, z.boss.id), !bossUnlocked)}
       ${bossBody}
     </div>
   </div>`;
@@ -5327,7 +5426,6 @@ function actBossBlockHtml(c, act, diffKey){
   const actBossUnlocked = !!(c && progressFor(c).bossUnlocked[act.actBoss.id]);
   const actBossEverUnlocked = !!(c && progressFor(c).actBossEverUnlocked[act.n]);
   const actBossThreat = act.actBoss.threat * threatMultFor(diffKey);
-  const loopId = c && c.loop.contentId;
   const body = !sectionOpen("questsOpen", act.actBoss.id) ? "" : `<div style="margin-top:8px">
       ${flavorOrHidden(actBossEverUnlocked, act.actBoss.flavor)}
       ${actBossUnlocked ? forecastHtml(c, act.actBoss.id) : (c ? lockMsgHtml(actBossLockMsg(c, act)) : "")}
@@ -5336,7 +5434,7 @@ function actBossBlockHtml(c, act, diffKey){
     ${questRowHtml(act.actBoss.id, "Act Boss", act.actBoss.name, actBossThreat,
       actBossUnlocked ? "Unlocked" : (c ? actBossLockMsg(c, act) : "Locked"),
       questStatusChip(c, actBossUnlocked), bossSendButton(c, act.actBoss.id, "actboss", actBossUnlocked, c ? actBossLockMsg(c, act) : "Locked"),
-      loopId === act.actBoss.id, !actBossUnlocked)}
+      inQueue(c, act.actBoss.id), !actBossUnlocked)}
     ${body}
   </div>`;
 }
@@ -5377,25 +5475,97 @@ function panelQuests(){
   return out.join("");
 }
 
-/* §7/§6e — per-character loop policy panel. Content offers unlocked zones,
-   zone bosses AND act bosses (§6e). Picking a boss is a valid ONE-SHOT
-   target: it relocks after its single attempt and resolveBossAttempt
-   reverts loop.contentId to lastZoneId automatically (win or lose, live or
-   offline) — see the comment there. */
+// item 4 — ticks for a chain entry's kind, the same mapping Engine.beginRun
+// itself uses to build ticksTotal.
+function ticksTotalForKind(kind){
+  return kind === "zone" ? BAL.ZONE_TICKS : kind === "zoneboss" ? BAL.ZONE_BOSS_TICKS : BAL.ACT_BOSS_TICKS;
+}
+/* item 4 — total wall-clock time left for the WHOLE queue, derived from
+   absolute timestamps only (never a decrementing counter — engine
+   invariant): the CURRENT run's remaining span (a.endsAt - now, only when
+   actually mid-run) plus the full duration of every entry still waiting in
+   loop.chain, each costed at runDurationMultFor's CURRENT value (§9.4/§13/
+   tree/set bonuses — the same multiplier Engine.beginRun will actually
+   apply when that entry starts). Exact once the chain is committed and
+   auto-rest never fires; if it does, it adds real time this can't predict
+   — loopPolicyPanel shows a note next to the number rather than pretending
+   it's exact. */
+function queueRemainingMs(c, now){
+  now = now || Date.now();
+  let ms = 0;
+  const a = c.activity;
+  if (a.type === "run") ms += Math.max(0, a.endsAt - now);
+  const interval = BAL.TICK_MINUTES * 60000 * runDurationMultFor(c, now);
+  for (const e of c.loop.chain) ms += ticksTotalForKind(e.kind) * interval;
+  return ms;
+}
+/* item 4 — the Quest Queue. Three parts: the built/running chain itself
+   (ordered list, Remove per entry, Clear Queue, Start Queue, the total-time
+   countdown); every currently unlocked zone/boss as an "add to chain"
+   button, grouped by act; rest & revive settings, which apply across the
+   whole chain and now live BELOW the content buttons per the brief (moved
+   down from where the old single-target dropdown used to sit). A chain
+   runs once through, in order, then the character goes idle — no repeat,
+   no run-limit (owner spec change 2026-08-12; repetition is now just
+   queueing the same zone more than once). Capped at BAL.QUEUE_CHAIN_CAP
+   entries total (A.queueAdd enforces it; the add buttons disable and say
+   why once full). */
 function loopPolicyPanel(c){
   if (!c) return "";
   const loop = c.loop;
-  const options = [];
-  for (const act of ACTS){
-    for (const z of act.zones){
-      if (progressFor(c).zoneUnlocked[z.id]) options.push({id:z.id, label:z.name});
-      if (progressFor(c).bossUnlocked[z.boss.id]) options.push({id:z.boss.id, label:z.boss.name + " (Zone Boss)"});
-    }
-    if (progressFor(c).bossUnlocked[act.actBoss.id]) options.push({id:act.actBoss.id, label:act.actBoss.name + " (Act Boss)"});
-  }
 
-  const contentOpts = options.map(o =>
-    `<option value="${o.id}" ${loop.contentId===o.id?"selected":""}>${esc(o.label)}</option>`).join("");
+  const chainRows = loop.chain.map((e, i) => {
+    const info = findContent(e.id, c.difficulty);
+    const kindLabel = e.kind === "zone" ? "Zone" : e.kind === "zoneboss" ? "Zone Boss" : "Act Boss";
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0${i > 0 ? ";border-top:1px solid var(--line)" : ""}">
+      <span style="font-size:12px"><b style="color:var(--parchment-dim)">${i + 1}.</b> ${esc(info ? info.name : e.id)}
+        <span style="color:var(--parchment-dim)"> &middot; ${kindLabel}</span></span>
+      <button class="btn" onclick="A.queueRemove(${i})">Remove</button>
+    </div>`;
+  }).join("");
+
+  const atCap = loop.chain.length >= BAL.QUEUE_CHAIN_CAP;
+  // §16 root-cause fix pattern — id'd so renderLive() can patch just this
+  // text every second while the Quest Queue section is open, same as the
+  // run bar's own countdown, rather than needing a full render() to stay
+  // honest about elapsed wall-clock time.
+  const remainingTxt = fmtDur(queueRemainingMs(c, Date.now()));
+
+  const chainBlock = loop.chain.length
+    ? `<div class="stub" style="margin-bottom:12px">
+        <div class="ph">Queue &middot; ${loop.chain.length} / ${BAL.QUEUE_CHAIN_CAP}${loop.active ? " &middot; running" : ""}</div>
+        ${chainRows}
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          ${!loop.active ? `<button class="btn primary" onclick="A.startQueue()">Start Queue</button>` : ""}
+          <button class="btn" onclick="A.queueClear()">Clear Queue</button>
+          <span style="font-size:12px;color:var(--parchment-dim)"><span id="queueCountdownTxt">${remainingTxt}</span> remaining</span>
+        </div>
+        ${loop.autoRestAt > 0 ? `<div class="flavor" style="margin-top:6px;font-style:normal;font-size:11px">
+          Auto-rest can add time mid-queue that this countdown can't predict — the real total may run longer.</div>` : ""}
+      </div>`
+    : `<div class="flavor" style="margin-bottom:12px">Nothing queued yet. Add zones or bosses below, then press Start Queue — it runs once through, in order, then stops.</div>`;
+
+  const actBlocks = ACTS.map(act => {
+    const addBtn = (id, kind, label) =>
+      `<button class="btn" onclick="A.queueAdd('${id}','${kind}')" ${atCap ? "disabled" : ""}
+         title="${atCap ? `Queue is full (${BAL.QUEUE_CHAIN_CAP} max)` : "Add to queue"}">${esc(label)}</button>`;
+    const btns = [];
+    for (const z of act.zones){
+      if (progressFor(c).zoneUnlocked[z.id]) btns.push(addBtn(z.id, "zone", z.name));
+      if (progressFor(c).bossUnlocked[z.boss.id]) btns.push(addBtn(z.boss.id, "zoneboss", z.boss.name + " (Boss)"));
+    }
+    if (progressFor(c).bossUnlocked[act.actBoss.id]) btns.push(addBtn(act.actBoss.id, "actboss", act.actBoss.name + " (Act Boss)"));
+    if (!btns.length) return "";
+    return `<div style="margin-bottom:10px">
+      <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Act ${act.roman} &middot; ${esc(act.name)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${btns.join("")}</div>
+    </div>`;
+  }).join("");
+  const addBlock = `<div class="stub" style="margin-bottom:12px">
+      <div class="ph">Add to Queue${atCap ? ` — full (${BAL.QUEUE_CHAIN_CAP} max)` : ""}</div>
+      ${actBlocks || `<div class="flavor">Nothing unlocked yet.</div>`}
+    </div>`;
+
   const autoRestOpts = [0,0.2,0.3,0.4,0.5,0.6].map(v =>
     `<option value="${v}" ${loop.autoRestAt===v?"selected":""}>${v===0?"Off":Math.round(v*100)+"% HP"}</option>`).join("");
   const restUntilOpts = [1,0.75,0.5].map(v =>
@@ -5418,49 +5588,16 @@ function loopPolicyPanel(c){
         <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">On death</div>
         <select onchange="A.setLoopOnDeath(this.value)">${onDeathOpts}</select>
       </label>`;
-  // §17 — "stop after N runs". 0 = off; Engine.noteRunResolved halts the
-  // loop the same way onDeath:"halt" does once loop.limitDone reaches this.
-  // Off, then every value 1-10. A save written before this list shrank may
-  // hold a limit that's no longer offered (25/50/100) — surface it as an extra
-  // option rather than dropping it, so the dropdown never displays "Off" while
-  // the loop is actually still counting down to 25. Picking any new value
-  // migrates it; nothing is mutated from render.
-  const limitChoices = [0,1,2,3,4,5,6,7,8,9,10];
-  if (loop.limit && !limitChoices.includes(loop.limit)) limitChoices.push(loop.limit);
-  const limitOpts = limitChoices.map(v =>
-    `<option value="${v}" ${loop.limit===v?"selected":""}>${v===0?"Off":v}</option>`).join("");
 
   const warn = (loop.restUntil <= loop.autoRestAt && loop.autoRestAt > 0)
     ? `<div class="flavor" style="margin-top:8px;color:var(--crimson-text);font-style:normal">
          Rest-until is at or below the auto-rest trigger — resting will run to 100% instead
          so the queue can't ping-pong.</div>`
     : "";
-  // §17 — progress readout, only meaningful once a limit is armed. Counts
-  // every RESOLVED run (win, death, or an early-exit abort) — see
-  // Engine.noteRunResolved for why a death must count too.
-  const limitProgress = loop.limit
-    ? `<div class="flavor" style="margin-top:8px;font-style:normal">
-         ${loop.limitDone} / ${loop.limit} runs${(!loop.repeat && loop.limitDone >= loop.limit)
-           ? ` <span style="color:var(--crimson-text)">&middot; limit reached, queue halted</span>` : ""}</div>`
-    : "";
 
-  // Header is supplied by the caller via collapsibleSection (§16) — this
-  // returns the BODY only, so nothing here is built while collapsed.
-  return `<div class="stub">
+  const settingsBlock = `<div class="stub">
+      <div class="ph">Rest &amp; Revive &mdash; applies across the whole queue</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
-        <label style="display:block">
-          <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Content</div>
-          <select onchange="A.setLoopContent(this.value)" ${options.length?"":"disabled"}>
-            <option value="">${options.length?"— choose content —":"No unlocked content"}</option>${contentOpts}
-          </select>
-        </label>
-        <label style="display:block">
-          <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Repeat</div>
-          <select onchange="A.setLoopRepeat(this.value)">
-            <option value="off" ${!loop.repeat?"selected":""}>Off</option>
-            <option value="on" ${loop.repeat?"selected":""}>On</option>
-          </select>
-        </label>
         <label style="display:block">
           <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Auto-rest at</div>
           <select onchange="A.setLoopAutoRest(this.value)">${autoRestOpts}</select>
@@ -5470,14 +5607,13 @@ function loopPolicyPanel(c){
           <select onchange="A.setLoopRestUntil(this.value)">${restUntilOpts}</select>
         </label>
         ${onDeathBlock}
-        <label style="display:block">
-          <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Stop after N runs</div>
-          <select onchange="A.setLoopLimit(this.value)">${limitOpts}</select>
-        </label>
       </div>
       ${warn}
-      ${limitProgress}
     </div>`;
+
+  // Header is supplied by the caller via collapsibleSection (§16) — this
+  // returns the BODY only, so nothing here is built while collapsed.
+  return `${chainBlock}${addBlock}${settingsBlock}`;
 }
 
 /* A character that is not idle cannot be sent; say why. */
@@ -5836,7 +5972,11 @@ function itemCardInner(c, it, mode){
 // quality to frame).
 function itemCard(c, it, mode){
   if (!it) return `<div class="stub"><div class="flavor">Empty</div></div>`;
-  return `<div class="stub item-card" style="border-color:var(--q-${it.quality})">
+  // item 2 — glow only an EQUIPPED set piece that's actually contributing a
+  // bonus (2+ of that set equipped — hasSetBonus). A lone 1/3 piece (no
+  // bonus active) gets the plain quality border and nothing more.
+  const glow = mode === "equipped" && it.quality === "set" && c && hasSetBonus(c, it.setKey, 2);
+  return `<div class="stub item-card${glow ? " set-glow" : ""}" style="border-color:var(--q-${it.quality})">
     ${itemCardInner(c, it, mode)}
   </div>`;
 }
@@ -6378,18 +6518,43 @@ const A = {
     });
   },
 
-  /* §7 — loop policy panel handlers. All persisted on c.loop, all through
-     mutate() per the UI-handler rule. */
-  setLoopContent(zoneId){
+  /* item 4 — Quest Queue: build/edit the chain, all persisted on
+     c.loop.chain, all through mutate() per the UI-handler rule. Each
+     character's chain lives entirely on that character (never a module or
+     clan-level variable) — see the per-character isolation requirement. */
+  queueAdd(id, kind){
     const c = activeChar();
     if (!c) return;
-    mutate(() => { c.loop.contentId = zoneId || null; });
+    const info = findContent(id, c.difficulty);
+    if (!info || info.kind !== kind) return;
+    const unlocked = kind === "zone" ? progressFor(c).zoneUnlocked[id] : progressFor(c).bossUnlocked[id];
+    if (!unlocked) return;
+    if (c.loop.chain.length >= BAL.QUEUE_CHAIN_CAP) return;   // cap enforced here, not just by disabling the button
+    mutate(() => { c.loop.chain.push({id, kind}); });
   },
-  setLoopRepeat(v){
+  queueRemove(idx){
     const c = activeChar();
     if (!c) return;
-    mutate(() => { c.loop.repeat = v === "on"; });
+    mutate(() => { c.loop.chain.splice(idx, 1); });
   },
+  queueClear(){
+    const c = activeChar();
+    if (!c) return;
+    mutate(() => { c.loop.chain = []; c.loop.active = false; });
+  },
+  /* Commits the built chain and begins execution — "until then nothing
+     runs" (brief). Engine.tryStartLoop picks it up on this character's
+     next idle pass (live tick, or immediately if already idle). */
+  startQueue(){
+    const c = activeChar();
+    if (!c || !c.loop.chain.length) return;
+    mutate(() => {
+      c.loop.active = true;
+      chronicle(c, 0, `${c.name}'s queue begins — ${c.loop.chain.length} order${c.loop.chain.length === 1 ? "" : "s"} queued.`, "sys");
+    });
+  },
+  /* §17 — loop policy panel handlers for rest/revive, unchanged in shape
+     from before item 4 — only their position in the panel moved. */
   setLoopAutoRest(v){
     const c = activeChar();
     if (!c) return;
@@ -6405,23 +6570,25 @@ const A = {
     if (!c) return;
     mutate(() => { c.loop.onDeath = (v === "halt") ? "halt" : "resume"; });
   },
-  // §17 — changing the limit RESETS limitDone to 0; otherwise re-arming an
-  // already-reached limit (or just changing it) would do nothing, since
-  // noteRunResolved only checks limitDone against the (new) limit going
-  // forward and never on its own re-zeroes a stale count.
-  setLoopLimit(v){
-    const c = activeChar();
-    if (!c) return;
-    mutate(() => { c.loop.limit = parseInt(v, 10) || 0; c.loop.limitDone = 0; });
-  },
 
-  /* §17 — end a zone run early. Zone runs only (no confirmation dialog per
-     the brief); Engine.abortRun itself refuses on a boss run, so this guard
-     is a UI convenience, not the enforcement point. */
+  /* §17/item 4 — end a zone run early. Zone runs only (no confirmation
+     dialog per the brief); Engine.abortRun itself refuses on a boss run, so
+     this guard is a UI convenience, not the enforcement point. Stopping the
+     run manually also ends the whole Quest Queue chain — the remaining
+     entries are discarded (brief) — but only when a queue was actually
+     driving it (loop.active); a manual Send unrelated to the queue must not
+     wipe an in-progress, not-yet-started chain draft. */
   abortRun(){
     const c = activeChar();
     if (!c || c.activity.type !== "run" || c.activity.kind !== "zone") return;
-    mutate(() => Engine.abortRun(c, Date.now()));
+    mutate(() => {
+      Engine.abortRun(c, Date.now());
+      if (c.loop.active){
+        c.loop.chain = [];
+        c.loop.active = false;
+        chronicle(c, 0, `${c.name}'s queue is cleared.`, "sys");
+      }
+    });
   },
 
   /* §6.6 — resting. Valid targets are 100/75/50% of maxHP (§7). Only from
@@ -7109,6 +7276,8 @@ window.DW = {
   // §1/§2/§16 Phase 12 verification seams (Hardcore + Clan Memorial + sets expansion)
   transferGearToVault, deathInsuranceChanceFor,
   get digestLosses(){ return digestLosses; },
+  // item 4 — Quest Queue verification seams
+  queueRemainingMs, ticksTotalForKind, inQueue, joinNames,
 };
 
 boot();
