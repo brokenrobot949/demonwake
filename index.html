@@ -475,8 +475,9 @@ const BAL = {
   // full sweep methodology). Both those tiers cover much higher ABSOLUTE
   // levels than Normal (xpToNext grows with level^XP_EXP, unbounded by
   // tier), while their Threat — and so their per-run XP via XP_SCALE below
-  // — only grows by the DIFFICULTY.threatMult the project owner fixed
-  // (x3.7/x13.3, not touched here): the exponent/scale pairing that was
+  // — only grows by the flat per-tier Threat multiplier the project owner
+  // fixed at the time (x3.7/x13.3 — since replaced by a per-tier curve, see
+  // BAL.DIFFICULTY's §16 Phase 13 comment; not touched here): the exponent/scale pairing that was
   // fine for Normal alone badly underpays Nightmare/Inferno's disproportionately
   // larger per-level XP requirement. Re-solved via a grid search over
   // (XP_EXP, XP_SCALE) — for each candidate pair, XP_BASE is binary-searched
@@ -486,8 +487,22 @@ const BAL = {
   // high absolute level, which is what actually drives Nightmare/Inferno's
   // run count. See XP_SCALE below for the paired change; XP_BASE re-solved
   // to 21.5 (was 80) to re-anchor Normal at ~40 under the new exponent.
-  XP_BASE: 21.5,
-  XP_EXP: 1.2,
+  // RE-SOLVED 2026-08-14 (Rob) after the per-tier Threat retune. XP scales off
+  // Threat via rewardThreatFor, so raising early-tier Threat also raised its XP
+  // and levelling ran away: 39/76/119 = 234 runs against §8.5's 40/90/180 = 310.
+  // That over-levelling is what made Nightmare's early acts read Trivial — a
+  // character entering at level 53 instead of 30 carries +115 Power from level
+  // alone (Power = 10 + level*5), which no Threat curve can absorb without
+  // making the tier unplayable for an on-pace character.
+  //
+  // Only XP_EXP/XP_BASE moved. XP_SCALE is deliberately untouched: it sets the
+  // boss-cycle advantage (1.4^XP_SCALE), and changing it would silently shift
+  // BOSS_REWARD_MULT away from the 2.69x ratio Rob approved — see the comment
+  // there. Grid-searched XP_EXP 1.38-1.52 with XP_BASE binary-searched each
+  // step to hold Normal at 40; 1.44 scored best on total runs (the ~300h goal)
+  // and lands 40 / 96 / 172 = 308.
+  XP_BASE: 10.91,
+  XP_EXP: 1.44,
 
   // §6.5/§8.5 — per-run rewards. NOT specified in the design doc (§6/§8
   // only give the xpToNext curve above); calibrated via DW.simProgression()
@@ -622,30 +637,63 @@ const BAL = {
   // §9.3 — item Power = itemLevel x qualityMult x slotMult x difficultyMult.
   SLOT_MULT: {weapon:1.5, armor:1.0, relic:0.8},
   // §8.4 — the tier table, verbatim. `mult` is the GEAR power multiplier
-  // (already wired since Phase 4, Items.generate). `threatMult` is the
-  // Threat multiplier (§8.4's "x12"/"x140") — a single named constant per
-  // tier so retuning is a one-line edit; applied in Calc.tickDamage, the
-  // ONE shared damage path, so it reaches applyTick AND forecastFor for
-  // free. `tag` is the Ancient/Mythic gear label (null on Normal — no tag).
-  // topLevel is the character-level ceiling of the tier, used by the affix
-  // level-bias roll below AND as the top of the tier's Inferno-band fallback.
-  // RETUNED by Rob on 2026-08-08. The doc's x12/x140 were measured against
-  // the real §9.3 gear formula and are unwinnable: gear Power grows only
-  // 3.7x into Nightmare and 13.3x into Inferno, so at Act V zone 15 the
-  // ratios came out 2.39 and 7.77 (the latter past RATIO_MAX, i.e. every
-  // tick already at the formula's maximum) for ~100% death. Even with maxed
-  // +Power% tree nodes AND a +12% Power affix in all three slots, Inferno
-  // still sat at 4.42. The Threat multipliers were lowered to track how
-  // Power actually scales, so each tier's endgame lands at ratio ~0.74 —
-  // the same feel as Normal's Act V. Tuned against best-in-slot Legendary
-  // WITHOUT maxed tree/affixes, deliberately: max investment should make a
-  // tier comfortable, not be the price of admission. The GEAR multipliers
-  // (2.5/6.25) are untouched, so §8.4's "an Ancient Common is stronger than
-  // a Normal Legendary" still holds exactly (2.5/2.2 = 1.136).
+  // (already wired since Phase 4, Items.generate). `tag` is the
+  // Ancient/Mythic gear label (null on Normal — no tag). topLevel is the
+  // character-level ceiling of the tier, used by the affix level-bias roll
+  // below AND as the top of the tier's Inferno-band fallback.
+  //
+  // §16 Phase 13 — RETUNED again (real-play report: level 53/Power 622
+  // finishing Normal, Power 1000+ after one Ancient set, "all zone and boss
+  // content is listed as trivial"). The single `threatMult` field (a flat
+  // per-tier Threat multiplier, x1/x3.7/x13.3, set in the Phase 10 retune
+  // above) is GONE — it applied uniformly across all 15 zones of a tier, so
+  // every tier's Act I z1 restarted from the doc's own low zone-8 base
+  // (8x3.7=30 for Nightmare, 8x13.3=106 for Inferno) while the tier's Act V
+  // z15 (275x3.7=1018, 275x13.3=3658) stayed put — a single multiplier
+  // can't raise the start without also raising the end, so the ratio
+  // between "hardest zone of the previous tier" and "easiest zone of the
+  // next" was ~9x EASIER, not harder. Measured: Nightmare Act I/II sat at
+  // 4.8% HP cost, RATIO_MIN's clamped floor — literally the easiest the
+  // engine can represent, for 9 of Nightmare's 15 zones at Power 622.
+  //
+  // Replaced with per-tier `threatStart`/`threatEnd` ANCHORS — see
+  // tierZoneThreat() below, which interpolates a zone's Threat between them
+  // using the zone's normalized position in the shipped 15-zone ladder
+  // (ZONE_THREAT_LADDER), so the RELATIVE shape of the ladder (the doc's
+  // own 8/14/22/.../275 progression) is preserved, just re-anchored per
+  // tier instead of uniformly rescaled off zone-8. `threatEnd` for every
+  // tier is UNCHANGED from the old threatMult regime (275/1018/3658 — the
+  // exact same numbers 1x/3.7x/13.3x already produced), because those are
+  // the "already-approved endgame values" that land ratio ~0.74 against
+  // best-in-slot gear for that tier (Normal: 275/371; Nightmare: 1018/1381;
+  // Inferno: 3658/4952 — see report for the full derivation). Only the
+  // START of Nightmare/Inferno moves — to the PREVIOUS tier's own `end`
+  // anchor (Nightmare starts at 275, Normal's own endgame Threat; Inferno
+  // starts at 1018, Nightmare's), so a tier now begins where the last one
+  // left off instead of resetting to a zone-8-equivalent floor. Normal
+  // itself is unchanged (`threatStart`/`threatEnd` bracket its own existing
+  // 8..275 zone data exactly, so tierZoneThreat reproduces the shipped
+  // Normal numbers bit-for-bit).
+  //
+  // NOTE (see report): this does NOT fully eliminate "Trivial" at the
+  // reported Power 622/1000+ figures for the FIRST zone or two of
+  // Nightmare specifically — that would require Nightmare's start anchor
+  // well above Normal's own endgame Threat (measured: >=~688 to clear the
+  // 25% Trivial line at Power 1000), which would in turn make Nightmare
+  // Act I z1 land past HIGH risk (ratio 688/371 -> ~70%+ mean HP cost) for
+  // a character who transitions at the intended, ON-LEVEL Power (best-in-
+  // slot Normal gear, ~371) rather than the reported over-leveled one. The
+  // player's Power 622 at level 53 is 1.68x the intended level-30 entry
+  // Power BECAUSE they over-leveled Normal by 23 levels past its own 1-30
+  // band before switching tiers — a level-band/XP-curve symptom, not
+  // something a per-zone Threat curve can absorb without breaking the tier
+  // for everyone who transitions on-schedule. Flagged per instruction
+  // rather than silently touched (BAL.XP_* is owner-set) — see report for
+  // the exact before/after numbers at both Power figures.
   DIFFICULTY: {
-    normal:    {mult:1,    topLevel:30, threatMult:1,    tag:null},
-    nightmare: {mult:2.5,  topLevel:60, threatMult:3.7,  tag:"Ancient"},
-    inferno:   {mult:6.25, topLevel:99, threatMult:13.3, tag:"Mythic"},
+    normal:    {mult:1,    topLevel:30, tag:null,      threatStart:8,    threatEnd:275},
+    nightmare: {mult:2.5,  topLevel:60, tag:"Ancient",  threatStart:275,  threatEnd:1018},
+    inferno:   {mult:6.25, topLevel:99, tag:"Mythic",   threatStart:1018, threatEnd:3658},
   },
   // §8.4 — Inferno is levels 61-99 (39 levels), which doesn't divide into
   // 5x6 the way Normal (1-30) and Nightmare (31-60) do. Resolved as
@@ -782,6 +830,12 @@ const BAL = {
   // of the roll is bias vs. pure Math.random() variance (1 = fully
   // level-determined, 0 = fully random). See Items.rollAffixValue.
   AFFIX_LEVEL_BIAS: 0.6,
+  // §9.5/§16 item 4 — a unique now rolls 1-3 standard affixes (Items.
+  // rollAffixes, same pool/level-bias as every other quality) IN ADDITION
+  // TO its fixed signature. Range, not a flat count, per the brief; see
+  // Items.build's unique branch. See report for the before/after unique
+  // power comparison against a full 3pc set.
+  UNIQUE_AFFIX_RANGE: [1, 3],
   // §7.1 — no drop rate is stated; derived from the away-digest example
   // ("6 runs...14 items", "7 runs, 22 items") implying ~2-3 items/run.
   DROPS_PER_RUN: 2.5,
@@ -2242,7 +2296,15 @@ function newState(){
       // migrate()'s `merged.ui = Object.assign({}, def.ui, data.ui || {})` —
       // so an old save's ui.hallOpen is correctly backfilled with no extra
       // migrate() code needed).
-      hallOpen: {memorial:false}},
+      hallOpen: {memorial:false},
+      // item 2 — vault slot filter (Clan Hall). "all" shows everything;
+      // otherwise one of "weapon"/"armor"/"relic". View-only — see
+      // vaultToolsHtml/A.setVaultFilterSlot. A pre-Phase-13 save has no
+      // `ui.vaultFilterSlot` key at all; migrate()'s blanket
+      // `Object.assign({}, def.ui, data.ui || {})` backfills it from this
+      // default with no extra migrate() code needed (same as hallOpen
+      // above, added the same way).
+      vaultFilterSlot: "all"},
     // §13 Phase 10 — The Cinder Market. stock is 6 items (BAL.MARKET_STOCK_SIZE),
     // refreshAt is the ABSOLUTE epoch ms of the next hourly refresh (§2.1 —
     // never a countdown). refreshAt:0 means "never rolled" — refreshMarketIfNeeded
@@ -2337,15 +2399,13 @@ const Calc = {
     // unconditionally. +Boss Damage (gear affix + tree bossDamage nodes,
     // which also absorbs the "crit" branch themes — see TREES comment)
     // applies only on top of that, and only for boss ticks.
-    // §8.4 Phase 10 — the tier Threat multiplier (x1/x12/x140, BAL.DIFFICULTY
-    // [c.difficulty].threatMult) is applied HERE, in the one shared damage
-    // path, before threatReductionFor/bossDamageFor — those are further
-    // reductions ON TOP of the tier-scaled Threat, not alternatives to it.
-    // Both applyTick and forecastFor call Calc.tickDamage directly with the
-    // RAW zone/boss Threat (findContent's `threat`, never `effThreat`), so
-    // this is the only place the multiplier is applied — never duplicate it
-    // at a call site or the forecast will double- or never-apply it.
-    let effThreat = threat * threatMultFor(c.difficulty) * (1 - threatReductionFor(c, isBoss));
+    // §8.4/§16 Phase 13 — `threat` here is ALREADY tier-scaled (the caller
+    // passes findContent's `effThreat`, from tierZoneThreat/tierBossThreat/
+    // tierActBossThreat — see findContent's comment). Both applyTick and
+    // forecastFor pass the SAME effThreat, so this is the only place
+    // threatReductionFor/bossDamageFor are applied — never duplicate them
+    // at a call site or the forecast will double- or never-apply them.
+    let effThreat = threat * (1 - threatReductionFor(c, isBoss));
     if (isBoss) effThreat *= (1 - bossDamageFor(c));
     // §9.5 Phase 11 — Emberquill/Dawnbreak (executeFinish): a boss fight's
     // FINAL tick lands lighter, as if the fight was already decided. Folded
@@ -2442,11 +2502,53 @@ function zoneIlvlFor(act, zoneIdx, difficulty){
   const [lo, hi] = actLevelBand(act, difficulty);
   return Math.floor((lo + hi) / 2) + zoneIdx;
 }
-// §8.4 — the Threat multiplier for a tier (x1/x12/x140), single lookup so
-// every display/calc site agrees. Falls back to Normal for an unrecognized
-// key rather than throwing (defensive, matches the rest of the file's
-// BAL.DIFFICULTY[...] lookups).
-function threatMultFor(difficulty){ return (BAL.DIFFICULTY[difficulty] || BAL.DIFFICULTY.normal).threatMult; }
+/* §8.4/§16 Phase 13 — the per-tier Threat CURVE (replaces the old flat
+   threatMultFor(difficulty) multiplier — see the BAL.DIFFICULTY comment for
+   the full "why" and the report for the measured before/after tables).
+
+   ZONE_THREAT_LADDER is the doc's own §8.3 Normal zone Threat progression,
+   flattened in ladder order (Act I z1..z3, Act II z1..z3, ... Act V z1..z3
+   — 15 values, 8..275). It is the canonical SHAPE every tier's zones
+   interpolate along; only the endpoints (BAL.DIFFICULTY[tier].threatStart/
+   threatEnd) move per tier. Read once off ACTS (defined above), not
+   hand-copied, so it can never drift from the shipped zone data. */
+const ZONE_THREAT_LADDER = ACTS.reduce((out, act) => out.concat(act.zones.map(z => z.threat)), []);
+console.assert(ZONE_THREAT_LADDER.length === 15, "§8.1 — 5 acts x 3 zones = 15-entry ladder");
+// A zone's 0-indexed position in that 15-entry ladder, from its act number
+// (1-indexed, act.n) and its 0-indexed slot within the act.
+function zoneLadderPos(act, zoneIdx){ return (act.n - 1) * 3 + zoneIdx; }
+// Where a zone sits along the ladder's own shape, 0 (Act I z1) to 1 (Act V
+// z15) — the SAME curve for every tier, only re-anchored by tierZoneThreat.
+function zoneLadderNorm(pos){
+  const lo = ZONE_THREAT_LADDER[0], hi = ZONE_THREAT_LADDER[ZONE_THREAT_LADDER.length - 1];
+  return (ZONE_THREAT_LADDER[pos] - lo) / (hi - lo);
+}
+// The tier-scaled Threat for the zone at ladder position `pos` (0-14).
+// Linear interpolation between the tier's own threatStart/threatEnd anchors
+// along zoneLadderNorm's shape. For Normal, threatStart/threatEnd exactly
+// bracket ZONE_THREAT_LADDER's own min/max, so this reproduces the shipped
+// 8/14/22/.../275 numbers exactly (norm(pos)*range+start === the raw value
+// by construction) — Normal's Threat table is byte-for-byte unchanged.
+function tierZoneThreat(pos, difficulty){
+  const tier = BAL.DIFFICULTY[difficulty] || BAL.DIFFICULTY.normal;
+  return tier.threatStart + zoneLadderNorm(pos) * (tier.threatEnd - tier.threatStart);
+}
+// §8.3 invariant — zone boss Threat is EXACTLY 1.4x its own zone's
+// TIER-SCALED Threat (not the raw one), so the "exactly 1.4x" relationship
+// holds at every tier, not just Normal.
+function tierBossThreat(pos, difficulty){ return tierZoneThreat(pos, difficulty) * 1.4; }
+// Act boss Threat stays PROPORTIONATE TO ITS ACT, as it already was (per
+// the task brief) — not tier-uniform. `act.actBoss.threat` (45/95/175/280/
+// 410, the doc's own values) is scaled by the SAME local multiplier the
+// curve gives that act's own 3rd zone, so the ratio between an act boss and
+// its act's hardest zone (e.g. Act I: 45/22 = 2.045x) is preserved exactly,
+// at whatever absolute Threat that act's position lands on for this tier.
+function tierActBossThreat(act, difficulty){
+  const lastZoneIdx = act.zones.length - 1;
+  const lastZone = act.zones[lastZoneIdx];
+  const scale = tierZoneThreat(zoneLadderPos(act, lastZoneIdx), difficulty) / lastZone.threat;
+  return act.actBoss.threat * scale;
+}
 
 /* §8.4 + §10.1 — the Threat that REWARDS are computed from. Rewards scale with
    the difficulty tier exactly as damage does (set by Rob 2026-08-09).
@@ -2469,9 +2571,11 @@ function rewardThreatFor(info){
 // difficulty defaults to "normal" for call sites with no specific character
 // in hand (e.g. a generic content-name lookup) — RAW `threat`/`ilvl` are
 // always the Normal-tier baseline; `effThreat` is pre-multiplied for display
-// (§8.4 — the tier multiplier itself is applied where it actually matters,
-// Calc.tickDamage's shared path, using the character's OWN difficulty, not
-// this parameter — see that function's comment).
+// (§8.4/§16 Phase 13 — the tier curve, tierZoneThreat/tierBossThreat/
+// tierActBossThreat above, is applied HERE, position-aware via each zone's
+// ladder slot, and threaded straight into Calc.tickDamage by its callers —
+// see that function's comment. This is now the ONLY place the tier curve is
+// applied; Calc.tickDamage takes an already-tier-scaled Threat).
 function findContent(id, difficulty){
   difficulty = difficulty || "normal";
   for (const act of ACTS){
@@ -2479,20 +2583,23 @@ function findContent(id, difficulty){
       const z = act.zones[zi];
       const ilvl = zoneIlvlFor(act, zi, difficulty);
       const band = actLevelBand(act, difficulty);
-      if (z.id === id) return {kind:"zone", act, zone:z, threat:z.threat, effThreat:z.threat*threatMultFor(difficulty), name:z.name, ilvl, band};
+      const pos = zoneLadderPos(act, zi);
+      if (z.id === id) return {kind:"zone", act, zone:z, threat:z.threat, effThreat:tierZoneThreat(pos, difficulty), name:z.name, ilvl, band};
       // §8.3 — zone boss Threat is EXACTLY zone x 1.4, unrounded (rounding
       // here would break the "exactly 1.4x" invariant the regression test
-      // checks). Boss item level is not specified by the doc (§8.3 only
-      // gives zone ilvl) — judgment call: zone ilvl + 1, so a boss always
-      // outdrops its own zone by one tier.
-      if (z.boss.id === id) return {kind:"zoneboss", act, zone:z, threat:z.threat*1.4, effThreat:z.threat*1.4*threatMultFor(difficulty), name:z.boss.name, ilvl:ilvl+1, band};
+      // checks) — now 1.4x the zone's TIER-SCALED Threat (tierBossThreat),
+      // so the invariant holds on every tier, not just Normal. Boss item
+      // level is not specified by the doc (§8.3 only gives zone ilvl) —
+      // judgment call: zone ilvl + 1, so a boss always outdrops its own
+      // zone by one tier.
+      if (z.boss.id === id) return {kind:"zoneboss", act, zone:z, threat:z.threat*1.4, effThreat:tierBossThreat(pos, difficulty), name:z.boss.name, ilvl:ilvl+1, band};
     }
     // Act boss ilvl: also unspecified — judgment call: the top of the act's
     // own ilvl band (its 3rd zone's ilvl), i.e. the strongest gear already
     // native to that act rather than reaching into the next act's band.
     if (act.actBoss.id === id){
       const ilvl = zoneIlvlFor(act, act.zones.length - 1, difficulty);
-      return {kind:"actboss", act, zone:null, threat:act.actBoss.threat, effThreat:act.actBoss.threat*threatMultFor(difficulty), name:act.actBoss.name, ilvl, band:actLevelBand(act, difficulty)};
+      return {kind:"actboss", act, zone:null, threat:act.actBoss.threat, effThreat:tierActBossThreat(act, difficulty), name:act.actBoss.name, ilvl, band:actLevelBand(act, difficulty)};
     }
   }
   return null;
@@ -2963,13 +3070,24 @@ const Items = {
       req: itemLevel,     // §9.3 — level requirement, enforced on equip
       power,
     };
-    // §9.5 Phase 11 — unique: 0 rolled affixes (BAL.QUALITY.unique.affixes
-    // is 0), one fixed signature effect instead. Name/sig come from the
+    // §9.5/§16 item 4 — unique: 1-3 ROLLED standard affixes (BAL.
+    // UNIQUE_AFFIX_RANGE), from the exact same §9.4 pool and level-bias
+    // roll every other quality uses (Items.rollAffixes — no second roller,
+    // no duplicate keys within the item, since rollAffixes already draws
+    // without replacement), PLUS one fixed signature effect that is never
+    // itself a rolled affix (the signature comes from the UNIQUES table,
+    // a disjoint set of effects from BAL.AFFIXES — see UNIQUES/sigDesc).
+    // BAL.QUALITY.unique.affixes stays 0 — it's the OLD fixed-count field
+    // every other quality still uses via `q.affixes` below; unique's count
+    // is randomized per-roll instead, so it needs its own range constant
+    // rather than a single number in that table. Name/sig come from the
     // UNIQUES table, keyed by the rolled owner class + this item's slot.
     if (quality === "unique"){
       const ownerCls = Items.pickUniqueOwnerClass(opts.foundByCls, opts.forceOwnClass);
       const def = (UNIQUES[ownerCls] && UNIQUES[ownerCls][slot]) || UNIQUES.barbarian[slot];
-      return Object.assign(base, {name: def.name, affixes: [], unique: true, uniqueCls: ownerCls, sig: def.sig, sigDesc: def.sigDesc, flavor: def.flavor});
+      const [lo, hi] = BAL.UNIQUE_AFFIX_RANGE;
+      const affixCount = lo + Math.floor(Math.random() * (hi - lo + 1));
+      return Object.assign(base, {name: def.name, affixes: Items.rollAffixes(affixCount, itemLevel, difficulty), unique: true, uniqueCls: ownerCls, sig: def.sig, sigDesc: def.sigDesc, flavor: def.flavor});
     }
     // §9.6 Phase 11 — set: 2 rolled affixes (normal pool) plus the fixed
     // 2pc/3pc bonuses (not stored on the item — computed live off
@@ -3803,7 +3921,9 @@ const Engine = {
   applyTick(c, atMs){
     const a = c.activity;
     const info = findContent(a.targetId, c.difficulty);
-    const threat = info ? info.threat : 0;
+    // §16 Phase 13 — TIER-SCALED effThreat, not the raw baseline `threat`;
+    // see findContent's comment (tierZoneThreat now applies the curve).
+    const threat = info ? info.effThreat : 0;
     const maxHP = Calc.maxHP(c);
     const isBoss = a.kind === "zoneboss" || a.kind === "actboss";
 
@@ -3851,9 +3971,11 @@ const Engine = {
     // (Phase 7's Bloodfury seam) so class passives land as a one-line change.
     const rewardMult = a.kind === "zoneboss" ? BAL.BOSS_REWARD_MULT * bossRewardMultFor(c)
       : a.kind === "actboss" ? BAL.ACT_BOSS_REWARD_MULT * bossRewardMultFor(c) : 1;
-    // §8.4 — rewards use the TIER-SCALED Threat (rewardThreatFor), not the raw
-    // `threat` local above, which stays raw because Calc.tickDamage applies the
-    // multiplier itself. rewardEstimateFor calls the same helper.
+    // §8.4/§16 Phase 13 — rewards use the TIER-SCALED Threat (rewardThreatFor),
+    // same as the `threat` local above (info.effThreat, per findContent's
+    // tierZoneThreat curve) — rewardThreatFor just centralizes the
+    // effThreat-vs-threat fallback so this and rewardEstimateFor can never
+    // read a different number for the same content.
     const rewardThreat = rewardThreatFor(info);
     a.accrued.xp   += (BAL.XP_RATE   * Math.pow(rewardThreat, BAL.XP_SCALE))   / ticksTotal * rewardMult;
     a.accrued.gold += (BAL.GOLD_RATE * Math.pow(rewardThreat, BAL.GOLD_SCALE)) / ticksTotal * rewardMult;
@@ -4366,20 +4488,23 @@ function simProgression(){
 // actLevelBand contains that level, at that tier) closest to the
 // character's position within the band — same "3 zones split the band into
 // thirds" logic simProgression's own `bands` table encodes for Normal,
-// generalized via actLevelBand/threatMultFor instead of a hardcoded table.
+// generalized via actLevelBand/tierZoneThreat instead of a hardcoded table.
+// §16 Phase 13 — reads the per-tier CURVE (tierZoneThreat), not the old flat
+// threatMultFor, so this stays honest about the retuned reward side effect.
 // Exposed as DW.benchXpSpans() — see report for the sweep that produced the
-// current BAL.XP_EXP/XP_BASE/XP_SCALE.
+// current BAL.XP_EXP/XP_BASE/XP_SCALE, and the report's retune section for
+// how the curve changed benchXpSpans' output.
 function threatForLevelAtTier(level, difficulty){
   for (const act of ACTS){
     const [lo, hi] = actLevelBand(act, difficulty);
     if (level >= lo && level <= hi){
       const span = (hi - lo + 1) / 3;
       const idx = clamp(Math.floor((level - lo) / span), 0, 2);
-      return act.zones[idx].threat * threatMultFor(difficulty);
+      return tierZoneThreat(zoneLadderPos(act, idx), difficulty);
     }
   }
   const act = ACTS[ACTS.length - 1];
-  return act.zones[2].threat * threatMultFor(difficulty);
+  return tierZoneThreat(zoneLadderPos(act, 2), difficulty);
 }
 function runsForLevelSpan(loLevel, hiLevel, difficulty){
   let level = loLevel, xp = 0, runs = 0;
@@ -4505,8 +4630,9 @@ function forecastFor(c, targetId){
   // §16 Phase 11 — Emberquill/Dawnbreak (executeFinish) changes the boss
   // fight's FINAL tick's damage shape, so two base means are needed (see
   // Calc.tickDamage); every non-final tick uses `base`, exactly as before.
-  const base = Calc.tickDamage(c, info.threat, isBoss, false);
-  const baseLast = isBoss ? Calc.tickDamage(c, info.threat, isBoss, true) : base;
+  // §16 Phase 13 — tier-scaled effThreat, matching applyTick (see findContent).
+  const base = Calc.tickDamage(c, info.effThreat, isBoss, false);
+  const baseLast = isBoss ? Calc.tickDamage(c, info.effThreat, isBoss, true) : base;
   // §16 Phase 12 — must mirror Engine.applyTick's guaranteedAvailable line
   // (three sources, not two) exactly, or the forecast's death probability
   // silently drifts from live play for a Bone Terraces 3pc character.
@@ -5392,13 +5518,16 @@ function inQueue(c, id){
 /* One zone plus its adjacent zone boss (§15.3 "zone bosses adjacent to
    their zone") — independently collapsible per 1b, kept in the same .stub
    card so the adjacency reads visually even though each row toggles alone. */
-function zoneBlockHtml(c, act, z, diffKey){
+function zoneBlockHtml(c, act, z, zi, diffKey){
   const unlocked = !!(c && progressFor(c).zoneUnlocked[z.id]);
   const bossUnlocked = !!(c && progressFor(c).bossUnlocked[z.boss.id]);
   const bossEverUnlocked = !!(c && progressFor(c).zoneBossEverUnlocked[z.boss.id]);
   const [bandLo, bandHi] = actLevelBand(act, diffKey);
-  const zoneThreat = z.threat * threatMultFor(diffKey);
-  const bossThreat = z.threat * 1.4 * threatMultFor(diffKey);
+  // §16 Phase 13 — the per-tier curve, position-aware (zoneLadderPos), not
+  // the old flat threatMultFor.
+  const pos = zoneLadderPos(act, zi);
+  const zoneThreat = tierZoneThreat(pos, diffKey);
+  const bossThreat = tierBossThreat(pos, diffKey);
 
   const zoneBody = !sectionOpen("questsOpen", z.id) ? "" : `<div style="margin-top:8px">
       ${flavorOrHidden(unlocked, z.flavor)}
@@ -5425,7 +5554,7 @@ function zoneBlockHtml(c, act, z, diffKey){
 function actBossBlockHtml(c, act, diffKey){
   const actBossUnlocked = !!(c && progressFor(c).bossUnlocked[act.actBoss.id]);
   const actBossEverUnlocked = !!(c && progressFor(c).actBossEverUnlocked[act.n]);
-  const actBossThreat = act.actBoss.threat * threatMultFor(diffKey);
+  const actBossThreat = tierActBossThreat(act, diffKey);   // §16 Phase 13
   const body = !sectionOpen("questsOpen", act.actBoss.id) ? "" : `<div style="margin-top:8px">
       ${flavorOrHidden(actBossEverUnlocked, act.actBoss.flavor)}
       ${actBossUnlocked ? forecastHtml(c, act.actBoss.id) : (c ? lockMsgHtml(actBossLockMsg(c, act)) : "")}
@@ -5466,7 +5595,7 @@ function panelQuests(){
     if (!open) return;
 
     out.push(flavorOrHidden(actReached, act.opening.split("\n\n")[0], ";margin-bottom:14px"));
-    act.zones.forEach(z => out.push(zoneBlockHtml(c, act, z, diffKey)));
+    act.zones.forEach((z, zi) => out.push(zoneBlockHtml(c, act, z, zi, diffKey)));
     out.push(actBossBlockHtml(c, act, diffKey));
     if (actCleared){
       out.push(flavorOrHidden(true, act.closing.split("\n\n")[0], ";margin-top:14px"));
@@ -5810,7 +5939,7 @@ function difficultyBodyHtml(c){
   return `<div class="stub" style="margin-bottom:14px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${buttons}</div>
       <div class="flavor" style="margin-top:8px;font-style:normal;font-size:12px">
-        Threat &times;${cur.threatMult} &middot; Gear Power &times;${cur.mult}${cur.tag ? ` &middot; drops tagged <b style="color:var(--gold)">${cur.tag}</b>` : ""}
+        Threat ${fmt(cur.threatStart)}&ndash;${fmt(cur.threatEnd)} &middot; Gear Power &times;${cur.mult}${cur.tag ? ` &middot; drops tagged <b style="color:var(--gold)">${cur.tag}</b>` : ""}
       </div>
     </div>`;
 }
@@ -5915,26 +6044,44 @@ function gearDeltaHtml(c, it){
 function itemCardInner(c, it, mode){
   // mode: "equipped" | "inventory" | "vault"
   const q = qualityLabel(it);   // §8.4 Phase 10 — Ancient/Mythic tag, if any
-  // §16 Phase 11 — a unique shows its fixed signature effect (it has no
-  // rolled affixes); a set shows its rolled affixes PLUS live piece-count
-  // progress toward its 2pc/3pc bonuses (only meaningful with a character
-  // in hand — `c` is null mid-retirement with an empty roster, §16 Phase 8).
+  // §16 Phase 11 — a unique shows its fixed signature effect; a set shows
+  // its rolled affixes PLUS live piece-count progress toward its 2pc/3pc
+  // bonuses (only meaningful with a character in hand — `c` is null
+  // mid-retirement with an empty roster, §16 Phase 8).
   // Text-separation pass — unique/set cards split into a `mechLine` (rules
   // text: sigDesc / setDef.name+affixes+bonuses, plain parchment, same as
   // rules text elsewhere) and a `flavorLine` (prose, rendered through the
   // same `.flavor` class flavorOrHidden uses for zone/boss text). A plain
   // rolled-affix item has no flavor of its own, so it keeps the original
   // single gold affixTxt line untouched.
-  let affixTxt, mechLine, flavorLine;
+  // §16 item 4 — a unique ALSO carries `affixTxt` now (its 1-3 rolled
+  // standard affixes, §9.4 text, same gold line every non-unique item
+  // uses) alongside `mechLine` (the fixed signature) and `flavorLine` (the
+  // prose) — three visually distinct text treatments on one card: gold
+  // affix line, plain-parchment mechanic line, dim italic flavor line.
+  let affixTxt, mechLine, mechLineHtml, flavorLine;
   if (it.quality === "unique"){
+    affixTxt = it.affixes.map(affixText).join(", ");
     mechLine = it.sigDesc;
     flavorLine = it.flavor;
   } else if (it.quality === "set" && SETS[it.setKey]){
     const setDef = SETS[it.setKey];
     const rolled = it.affixes.map(affixText).join(", ");
     const n = c ? setPieceCount(c, it.setKey) : 0;
-    mechLine = `${setDef.name}${rolled ? " · " + rolled : ""} — ${n}/3 equipped `
-      + `(2pc: ${setDef.bonus2}${n >= 2 ? " ✓" : ""}; 3pc: ${setDef.bonus3}${n >= 3 ? " ✓" : ""})`;
+    // item 3 — a set bonus that's CURRENTLY ACTIVE for the selected
+    // character (2pc at n>=2, 3pc at n>=3 — same hasSetBonus threshold
+    // every gameplay seam reads) renders in --upgrade, the existing
+    // gear-compare "net upgrade" green (measured 4.5:1+ on --bg-raised,
+    // item cards' own background — see report). Inactive stays the plain
+    // mechLine colour set at the render site below. Built as HTML (not
+    // plain text through esc()) since every piece here — setDef.name/
+    // bonus2/bonus3, affixText's output — is internally generated, never
+    // user input; the individual text fragments are still esc()'d.
+    const b2Color = n >= 2 ? "var(--upgrade)" : "inherit";
+    const b3Color = n >= 3 ? "var(--upgrade)" : "inherit";
+    mechLineHtml = `${esc(setDef.name)}${rolled ? " &middot; " + esc(rolled) : ""} — ${n}/3 equipped `
+      + `(<span style="color:${b2Color}">2pc: ${esc(setDef.bonus2)}${n >= 2 ? " &#10003;" : ""}</span>; `
+      + `<span style="color:${b3Color}">3pc: ${esc(setDef.bonus3)}${n >= 3 ? " &#10003;" : ""}</span>)`;
     flavorLine = setDef.flavor;
   } else {
     affixTxt = it.affixes.map(affixText).join(", ");
@@ -5963,7 +6110,8 @@ function itemCardInner(c, it, mode){
     </div>
     ${mode !== "equipped" ? gearDeltaHtml(c, it) : ""}
     ${affixTxt ? `<div style="font-size:12px;color:var(--gold);margin-bottom:8px">${esc(affixTxt)}</div>` : ""}
-    ${mechLine ? `<div style="font-size:12px;color:var(--parchment);margin-bottom:4px">${esc(mechLine)}</div>` : ""}
+    ${mechLineHtml ? `<div style="font-size:12px;color:var(--parchment);margin-bottom:4px">${mechLineHtml}</div>`
+      : mechLine ? `<div style="font-size:12px;color:var(--parchment);margin-bottom:4px">${esc(mechLine)}</div>` : ""}
     ${flavorLine ? `<div class="flavor" style="font-size:12px;margin-bottom:8px">${esc(flavorLine)}</div>` : ""}
     <div style="display:flex;gap:6px;flex-wrap:wrap">${actions}</div>`;
 }
@@ -6063,6 +6211,39 @@ function inventoryToolsHtml(c){
     <button class="btn" onclick="A.openSellAll()" ${sellable.length ? "" : "disabled"}
       title="${sellable.length ? "Sell everything except Uniques and Sets" : "Nothing sellable"}"
       >Sell All${sellable.length ? ` &middot; ${fmt(total)}g` : ""}</button>
+  </div>`;
+}
+/* item 2 — Clan Hall vault tools. Follows the SAME precedent as
+   inventoryToolsHtml/A.sortInventory above rather than inventing a
+   parallel system: "Sort · Upgrade" reuses the exact gearDeltaFor
+   comparator (A.sortVault('upgrade'), see its comment), against the
+   currently SELECTED character (gearDeltaFor needs a character in hand to
+   compute Δ Power/Δ Max HP — disabled with no active character, same as
+   the inventory button being disabled on an empty pack). Three more real
+   reorders (Quality/Slot/Item Level) cover the brief's other suggestions;
+   "grouping by slot" is Sort · Slot itself (clusters weapon/armor/relic
+   together) rather than a separate grouped-header layout, which would cost
+   more markup for the same practical result on a flat item-card grid.
+   The slot FILTER (right-hand select) is view-only — never reorders or
+   drops anything from S.vault, just hides non-matching cards from THIS
+   render — persisted on S.ui.vaultFilterSlot so it survives a reload
+   (same pattern as S.ui.questsOpen). Buttons wrap via flex-wrap; verified
+   at 375px (see report). */
+const VAULT_SLOT_ORDER = ["weapon", "armor", "relic"];
+function vaultToolsHtml(c, shownCount, totalCount){
+  const filterSlot = S.ui.vaultFilterSlot || "all";
+  const slotOpts = ["all", "weapon", "armor", "relic"].map(s =>
+    `<option value="${s}" ${filterSlot === s ? "selected" : ""}>${s === "all" ? "All slots" : s[0].toUpperCase() + s.slice(1)}</option>`).join("");
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+    <button class="btn" onclick="A.sortVault('upgrade')" ${c && totalCount ? "" : "disabled"}
+      title="${c ? "Reorder by Power gained if equipped on " + esc(c.name) + ", biggest upgrade first" : "Select a character first"}">Sort &middot; Upgrade</button>
+    <button class="btn" onclick="A.sortVault('quality')" ${totalCount ? "" : "disabled"} title="Reorder by quality, best first">Sort &middot; Quality</button>
+    <button class="btn" onclick="A.sortVault('slot')" ${totalCount ? "" : "disabled"} title="Group by slot (weapon, armor, relic)">Sort &middot; Slot</button>
+    <button class="btn" onclick="A.sortVault('ilvl')" ${totalCount ? "" : "disabled"} title="Reorder by item level, highest first">Sort &middot; Item Lv</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--parchment-dim);margin-left:auto">
+      Filter <select onchange="A.setVaultFilterSlot(this.value)">${slotOpts}</select>
+    </label>
+    ${filterSlot !== "all" ? `<span style="font-size:12px;color:var(--parchment-dim);width:100%">Showing ${shownCount} of ${totalCount}</span>` : ""}
   </div>`;
 }
 function renderSellAllModal(c){
@@ -6408,10 +6589,18 @@ function memorialSectionHtml(){
 function panelHall(){
   const c = activeChar();
   const invCap = invCapFor(c), vaultCap = vaultCapFor();
+  // item 2 — vault sort/filter. Filtering is view-only (never touches
+  // S.vault itself — see vaultToolsHtml's comment); sorting is a real
+  // reorder via A.sortVault, so it's already reflected in S.vault's own
+  // order here with no extra work.
+  const vaultFilterSlot = S.ui.vaultFilterSlot || "all";
+  const vaultShown = vaultFilterSlot === "all" ? S.vault : S.vault.filter(it => it.slot === vaultFilterSlot);
   const vaultGrid = S.vault.length
-    ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
-        ${S.vault.map(it => itemCard(c, it, "vault")).join("")}
-      </div>`
+    ? (vaultShown.length
+        ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+            ${vaultShown.map(it => itemCard(c, it, "vault")).join("")}
+          </div>`
+        : `<div class="flavor">No ${esc(vaultFilterSlot)} items in the vault.</div>`)
     : `<div class="flavor">Empty. The clan keeps nothing in reserve.</div>`;
   const doneCount = ACHIEVEMENTS.filter(a => S.achievements[a.id]).length;
 
@@ -6437,6 +6626,7 @@ function panelHall(){
     <h3 class="sub">Vault — clan-owned (${S.vault.length} / ${vaultCap})</h3>
     <div class="flavor" style="margin-bottom:8px">Shared across the whole clan. Any character can take from it.
       A character's own carried inventory is ${invCap} slots, in the Gear tab.</div>
+    ${S.vault.length ? vaultToolsHtml(c, vaultShown.length, S.vault.length) : ""}
     ${vaultGrid}
 
     <h3 class="sub">Achievements <span style="color:var(--parchment-dim);font-size:11px">(${doneCount} / ${ACHIEVEMENTS.length})</span></h3>
@@ -6963,6 +7153,54 @@ const A = {
       });
     });
   },
+
+  /* item 2 — Clan Hall vault sort. Real in-place reorder of S.vault
+     (persists in the save), same "click to sort, stays until re-clicked"
+     model as A.sortInventory above. 'upgrade' reuses that EXACT
+     comparator/Map-precompute pattern (see its comment for why the deltas
+     are precomputed rather than recomputed inside the sort comparator),
+     just evaluated against S.vault and the currently active character;
+     the other three modes are plain field sorts covering the brief's
+     "quality / slot / item level" suggestions. No-ops (mutate still runs,
+     UI stays a no-op) for an unrecognised mode — defensive, matches the
+     rest of the file's *For() fallbacks. */
+  sortVault(mode){
+    const c = activeChar();
+    if (mode === "upgrade" && !c) return;
+    mutate(() => {
+      if (mode === "upgrade"){
+        const key = new Map();
+        for (const it of S.vault){
+          const d = gearDeltaFor(c, it) || {};
+          key.set(it, {usable: d.overLevel ? 0 : 1, dp: d.dPower || 0, dh: d.dMaxHP || 0});
+        }
+        S.vault.sort((a, b) => {
+          const A = key.get(a), B = key.get(b);
+          return (B.usable - A.usable)
+            || (B.dp - A.dp)
+            || (B.dh - A.dh)
+            || (b.itemLevel - a.itemLevel)
+            || (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality));
+        });
+      } else if (mode === "quality"){
+        S.vault.sort((a, b) => (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality))
+          || (b.itemLevel - a.itemLevel) || (b.power - a.power));
+      } else if (mode === "slot"){
+        S.vault.sort((a, b) => (VAULT_SLOT_ORDER.indexOf(a.slot) - VAULT_SLOT_ORDER.indexOf(b.slot))
+          || (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality))
+          || (b.itemLevel - a.itemLevel));
+      } else if (mode === "ilvl"){
+        S.vault.sort((a, b) => (b.itemLevel - a.itemLevel)
+          || (QUALITY_RANK.indexOf(b.quality) - QUALITY_RANK.indexOf(a.quality)));
+      }
+    });
+  },
+  // item 2 — view-only vault slot filter, persisted on S.ui.vaultFilterSlot
+  // (see that default's comment). Never touches S.vault itself.
+  setVaultFilterSlot(slot){
+    mutate(() => { S.ui.vaultFilterSlot = slot; });
+  },
+
   openSellAll(){
     const c = activeChar();
     if (!c || !sellableInventory(c).length) return;
@@ -7266,7 +7504,10 @@ window.DW = {
   set achCheckEnabled(v){ ACH_CHECK_ENABLED = v; },
   get digestAchievements(){ return digestAchievements; },
   // Phase 10 verification seams
-  progressFor, freshProgress, actLevelBand, zoneIlvlFor, threatMultFor,
+  progressFor, freshProgress, actLevelBand, zoneIlvlFor,
+  // §16 Phase 13 verification seams — the per-tier Threat curve
+  tierZoneThreat, tierBossThreat, tierActBossThreat, zoneLadderPos,
+  zoneLadderNorm, ZONE_THREAT_LADDER, threatForLevelAtTier, runsForLevelSpan,
   qualityLabel, mysticActive, mysticBonus,
   get townUi(){ return townUi; },
   // Phase 11 verification seams
