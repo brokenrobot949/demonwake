@@ -2367,7 +2367,13 @@ function newState(){
       // migrate()'s `merged.ui = Object.assign({}, def.ui, data.ui || {})` —
       // so an old save's ui.hallOpen is correctly backfilled with no extra
       // migrate() code needed).
-      hallOpen: {memorial:false},
+      // `vault` joins it on the same terms (owner's ask): the Clan Hall's
+      // longest section by far once the grouped view expands every set into
+      // its own card block, so it defaults CLOSED and the header keeps the
+      // n/cap count visible while collapsed. An old save whose ui.hallOpen
+      // predates this key simply has no `vault` entry, and sectionOpen()
+      // reads a missing key as closed — the intended default either way.
+      hallOpen: {memorial:false, vault:false},
       // item 2 — vault slot filter (Clan Hall). "all" shows everything;
       // otherwise one of "weapon"/"armor"/"relic". View-only — see
       // vaultToolsHtml/A.setVaultFilterSlot. A pre-Phase-13 save has no
@@ -7017,11 +7023,12 @@ function panelHall(){
       ${Object.keys(FACILITIES).map(facilityCardHtml).join("")}
     </div>
 
-    <h3 class="sub">${icon("vault", 14)}Vault — clan-owned (${S.vault.length} / ${vaultCap})</h3>
-    <div class="flavor" style="margin-bottom:8px">Shared across the whole clan. Any character can take from it.
+    ${collapsibleSection("hallOpen", "vault",
+      `${icon("vault", 14)}Vault — clan-owned (${S.vault.length} / ${vaultCap})`,
+      () => `<div class="flavor" style="margin-bottom:8px">Shared across the whole clan. Any character can take from it.
       A character's own carried inventory is ${invCap} slots, in the Gear tab.</div>
     ${S.vault.length ? vaultToolsHtml(c, vaultShown.length, S.vault.length) : ""}
-    ${vaultGrid}
+    ${vaultGrid}`)}
 
     <h3 class="sub">${icon("achievements", 14)}Achievements <span style="color:var(--parchment-dim);font-size:11px">(${doneCount} / ${ACHIEVEMENTS.length})</span></h3>
     <div style="max-height:420px;overflow-y:auto;padding-right:4px">
