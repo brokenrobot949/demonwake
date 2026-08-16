@@ -202,6 +202,19 @@ h3.sub.tree-header{font-size:16px;letter-spacing:.16em;color:var(--crimson-text)
 }
 .stub .ph{color:var(--crimson-text);font-family:var(--serif);letter-spacing:.12em;
   font-size:11px;text-transform:uppercase;display:block;margin-bottom:6px}
+/* Emberhold's four buildings are the Town tab's real subsections, so they read
+   a step up from the plain .ph — which elsewhere labels inline chips (Hardcore,
+   queue counts, Innate Passive) that must stay small. Opt-in class, not a bump
+   to .ph itself, so those chips are untouched. */
+.stub .ph.building{font-size:15px;letter-spacing:.1em;margin-bottom:9px}
+/* §17 icon system — glyphs inherit currentColor (see ICON_ART's own comment,
+   §8a in <script>), so no color rule belongs here, only layout. flex-shrink:0
+   matters because h3.sub.collapsible is a flex row (space-between + a caret
+   on the right); without it a long title could compress the icon. */
+.icon{display:inline-block;vertical-align:-0.15em;flex-shrink:0}
+.tab .icon{margin-right:0.4em}
+h2.sec .icon,h3.sub .icon{margin-right:0.45em;vertical-align:-0.18em}
+.stub .ph .icon{margin-right:0.4em;vertical-align:-0.16em}
 /* §17 — gear card rework: item cards (itemCard/marketItemCardHtml) read as
    a definite quality frame, not a faint dashed hint. Overrides .stub's
    dashed 1px with a solid 2px border in the quality colour (still set
@@ -532,6 +545,17 @@ const BAL = {
   RENOWN_ZONEBOSS_MULT: 40,  // zone boss defeated
   RENOWN_ACTBOSS_MULT: 250,  // act boss defeated
   RENOWN_ACTCLEAR_MULT: 500, // act completed, first time per difficulty (§10.1)
+  // Renown scales with the difficulty tier as well as the act number (Rob,
+  // 2026-08-16). Before this, all three tiers paid identical Renown because
+  // every grant keyed off info.act.n and all tiers share the same ACTS array —
+  // which made Normal Act V the optimal Renown farm in the entire game and gave
+  // Inferno no meta-progression reason to exist. Deliberately MODEST (1/2/4)
+  // rather than matching XP/gold's Threat-derived scaling (which is 13.3x at
+  // Inferno Act V and would have landed every existing milestone far earlier
+  // than they were tuned for). Read ONLY through renownTierMultFor — see that
+  // function, next to rewardThreatFor, for why it must never be inlined at
+  // more than one call site.
+  RENOWN_TIER_MULT: {normal: 1, nightmare: 2, inferno: 4},
 
   // §17 "Boss reward multipliers... must clearly out-earn an hour of zone
   // running or nobody will fight them." Applied to xp/gold accrual per tick
@@ -1730,11 +1754,11 @@ const ACTS = [
 ];
 
 const TABS = [
-  {id:"quests",  label:"Quests"},
-  {id:"char",    label:"Character"},
-  {id:"gear",    label:"Gear"},
-  {id:"town",    label:"Town"},
-  {id:"hall",    label:"Clan Hall"},
+  {id:"quests",  label:"Quests",    icon:"quests"},
+  {id:"char",    label:"Character", icon:"character"},
+  {id:"gear",    label:"Gear",      icon:"gear"},
+  {id:"town",    label:"Town",      icon:"town"},
+  {id:"hall",    label:"Clan Hall", icon:"hall"},
 ];
 
 /* ==================================================================
@@ -1781,18 +1805,62 @@ const MILESTONES = [
   {renown:15000, label:"Revive cooldown -30 min (total -45m)"},
   {renown:20000, label:"+15% gold find"},
   {renown:30000, label:"-5% run duration (clan-wide)"},
+  // §10.2 ladder extension (Rob, 2026-08-16) — "mostly system unlocks, not
+  // more percentages" (9 unlocks, 5 percentages below). Spacing continues
+  // the existing curve; nothing below 40,000 is touched.
+  //
+  // THIS ARRAY MUST STAY SORTED BY `renown` ASCENDING. nextMilestoneInfo()
+  // walks it in order and returns the FIRST row above S.renown, so an
+  // out-of-sequence row is silently skipped by the progress bar (and renders
+  // out of order in milestoneListHtml). checkMilestones() tests every row
+  // independently, so effects still fire — which is exactly why an ordering
+  // mistake here shows up only as a wrong "next:" label and is easy to miss.
+  // The 40,000 row below was appended after 50,000 on first write and did
+  // exactly that: at 35,000 Renown the bar pointed at 50,000.
+  {renown:40000,  label:"+1 Cinder Market stall (7 items)"},
   {renown:50000, label:"+15% item find, +10% unique chance"},
+  {renown:65000,  label:"+40 vault slots"},
+  {renown:80000,  label:"Market refreshes every 45 min"},
+  {renown:100000, label:"-20% Vardun's Forge crafting cost"},
+  {renown:120000, label:"+12 inventory slots per character"},
+  {renown:145000, label:"Revive cooldown -15 min (total -60m)"},
+  {renown:170000, label:"+1 auto-salvage filter rule"},
+  {renown:200000, label:"-20% Mystic consult cost"},
+  {renown:235000, label:"+10% gold find (30% total)"},
+  {renown:275000, label:"Mystic buff lasts 3h (from 2h)"},
+  {renown:320000, label:"+10% item find (35% total)"},
+  {renown:375000, label:"The Cinder Market never stocks Common"},
+  {renown:435000, label:"-5% run duration (10% total)"},
+  {renown:500000, label:"Market always stocks one Legendary or better"},
 ];
-console.assert(MILESTONES.length === 15, "§10.2 — 15 milestone rows");
+console.assert(MILESTONES.length === 29, "§10.2 — 15 original + 14 ladder-extension milestone rows");
 
 // Additive-percentage accumulators, per the stacking rule above. Each is a
 // pure function of S.renown, called by the matching *For() helper in §5b.
-function milestoneGoldFindPct(){ return (S.renown >= 250 ? 0.05 : 0) + (S.renown >= 20000 ? 0.15 : 0); }
+function milestoneGoldFindPct(){ return (S.renown >= 250 ? 0.05 : 0) + (S.renown >= 20000 ? 0.15 : 0) + (S.renown >= 235000 ? 0.10 : 0); }
 function milestoneXpGainPct(){ return (S.renown >= 500 ? 0.05 : 0) + (S.renown >= 6500 ? 0.10 : 0); }
-function milestoneItemFindPct(){ return (S.renown >= 3500 ? 0.10 : 0) + (S.renown >= 50000 ? 0.15 : 0); }
+function milestoneItemFindPct(){ return (S.renown >= 3500 ? 0.10 : 0) + (S.renown >= 50000 ? 0.15 : 0) + (S.renown >= 320000 ? 0.10 : 0); }
 function milestoneUniqueChancePct(){ return (S.renown >= 10000 ? 0.05 : 0) + (S.renown >= 50000 ? 0.10 : 0); }
-function milestoneReviveCooldownMs(){ return (S.renown >= 1750 ? 15*60000 : 0) + (S.renown >= 15000 ? 30*60000 : 0); }
-function milestoneRunDurationPct(){ return S.renown >= 30000 ? 0.05 : 0; }
+function milestoneReviveCooldownMs(){ return (S.renown >= 1750 ? 15*60000 : 0) + (S.renown >= 15000 ? 30*60000 : 0) + (S.renown >= 145000 ? 15*60000 : 0); }
+function milestoneRunDurationPct(){ return (S.renown >= 30000 ? 0.05 : 0) + (S.renown >= 435000 ? 0.05 : 0); }
+
+/* §10.2 ladder extension — the 9 new SYSTEM-UNLOCK rewards (40k-500k, minus
+   the 5 rows above that just extend an existing percentage). Each is a pure
+   function of S.renown, same seam as the six above; called from whichever
+   *For()/panel/Engine function actually consumes it (see each call site's
+   own comment for the "why here" — this block is just the single source of
+   truth for the THRESHOLD, kept together per the file's own convention of
+   grouping every milestone*() sibling in one place). */
+function milestoneMarketStockBonus(){ return S.renown >= 40000 ? 1 : 0; }             // Engine.rollMarketStock
+function milestoneVaultCapBonus(){ return S.renown >= 65000 ? 40 : 0; }               // vaultCapFor
+function milestoneMarketRefreshMs(){ return S.renown >= 80000 ? 45*60000 : BAL.MARKET_REFRESH_MS; } // Engine.refreshMarketIfNeeded
+function milestoneForgeDiscountPct(){ return S.renown >= 100000 ? 0.20 : 0; }         // forgeCostFor
+function milestoneInvCapBonus(){ return S.renown >= 120000 ? 12 : 0; }                // invCapFor
+function milestoneSalvageExtraRule(){ return S.renown >= 170000; }                    // shouldAutoSalvage Rule 4
+function milestoneMysticDiscountPct(){ return S.renown >= 200000 ? 0.20 : 0; }        // mysticCostFor
+function milestoneMysticDurationMs(){ return S.renown >= 275000 ? BAL.MYSTIC_DURATION_MS + 3600000 : BAL.MYSTIC_DURATION_MS; } // A.buyMysticBuff
+function milestoneMarketNoCommon(){ return S.renown >= 375000; }                      // Engine.rollMarketStock
+function milestoneMarketGuaranteedLegendary(){ return S.renown >= 500000; }           // Engine.rollMarketStock
 
 /* Fires class-unlock milestones and records every crossed threshold for
    display. Idempotent — safe to call as often as S.renown might have
@@ -2132,9 +2200,12 @@ function newCharacter(cls, name, hardcore){
     // §9.7's own 2 rules (Archive tiers 1/2); sellBelowEquipped is the
     // Phase 11 resolution of the §11/§9.7 Archive-tier-3 contradiction
     // (see report) — "sell items weaker than what's currently equipped in
-    // that slot". Uniques/Sets are never subject to this filter — enforced
-    // structurally in Engine.payout, not as a setting here (see shouldAutoSalvage).
-    salvage: {sellAtOrBelow:"off", sellBelowLevels:0, sellBelowEquipped:false},
+    // that slot". sellBelowBestEquipped is the §10.2 Renown-milestone 4th
+    // rule (170,000, gated on milestoneSalvageExtraRule, not an Archive
+    // tier — see shouldAutoSalvage's Rule 4 comment). Uniques/Sets are never
+    // subject to this filter — enforced structurally in Engine.payout, not
+    // as a setting here (see shouldAutoSalvage).
+    salvage: {sellAtOrBelow:"off", sellBelowLevels:0, sellBelowEquipped:false, sellBelowBestEquipped:false},
 
     // §8.2/§8.4 unlock bookkeeping — PER DIFFICULTY (Phase 10). Switching
     // difficulty re-runs acts I-V from the start (§8.4) because each tier
@@ -2304,7 +2375,18 @@ function newState(){
       // `Object.assign({}, def.ui, data.ui || {})` backfills it from this
       // default with no extra migrate() code needed (same as hallOpen
       // above, added the same way).
-      vaultFilterSlot: "all"},
+      vaultFilterSlot: "all",
+      // Clan Hall vault revamp — "Grouped" (sets clustered together, owner's
+      // ask) vs "Flat" (today's single sorted/filtered grid), toggled by
+      // A.setVaultView/vaultToolsHtml. Same flat top-level key on S.ui as
+      // vaultFilterSlot right above, so the SAME blanket
+      // `Object.assign({}, def.ui, data.ui || {})` in migrate() backfills a
+      // pre-this-change save with no extra migrate() code — verified against
+      // a staged save missing `ui.vaultView` entirely (see report). Defaults
+      // to "grouped" per the brief; anything other than the literal string
+      // "flat" is read as "grouped" everywhere this is consumed, so a
+      // corrupted/unexpected value can never wedge the view.
+      vaultView: "grouped"},
     // §13 Phase 10 — The Cinder Market. stock is 6 items (BAL.MARKET_STOCK_SIZE),
     // refreshAt is the ABSOLUTE epoch ms of the next hourly refresh (§2.1 —
     // never a countdown). refreshAt:0 means "never rolled" — refreshMarketIfNeeded
@@ -2566,6 +2648,19 @@ function tierActBossThreat(act, difficulty){
 function rewardThreatFor(info){
   if (!info) return 0;
   return info.effThreat != null ? info.effThreat : info.threat;
+}
+
+// §10.1/§10.2 — Renown's OWN tier multiplier (BAL.RENOWN_TIER_MULT), a
+// separate, much shallower curve than rewardThreatFor's Threat-derived one
+// above (see that constant's comment for why 1/2/4 rather than matching
+// Threat). Engine.completeRun (the real payout), resolveBossAttempt (the
+// act-clear bonus) and rewardEstimateFor (the pre-run UI estimate) must all
+// call this and ONLY this — never inline BAL.RENOWN_TIER_MULT[difficulty] at
+// a call site, or the estimate and the payout will silently disagree exactly
+// the way xp/gold once did before rewardThreatFor was centralized (see that
+// function's comment for the historical bug).
+function renownTierMultFor(difficulty){
+  return BAL.RENOWN_TIER_MULT[difficulty] != null ? BAL.RENOWN_TIER_MULT[difficulty] : 1;
 }
 
 // difficulty defaults to "normal" for call sites with no specific character
@@ -2852,7 +2947,7 @@ function resolveBossAttempt(c, a, info, won){
     const cleared = S.actsCleared[c.difficulty] || (S.actsCleared[c.difficulty] = []);
     if (!cleared.includes(info.act.n)){
       cleared.push(info.act.n);
-      a.accrued.renown += BAL.RENOWN_ACTCLEAR_MULT * info.act.n;
+      a.accrued.renown += BAL.RENOWN_ACTCLEAR_MULT * info.act.n * renownTierMultFor(c.difficulty);
     }
     // §8.4 Phase 10 — "unlocked per character after clearing the Act V boss
     // on the prior tier". c.tierUnlocked is per-character PERMISSION to
@@ -3166,8 +3261,11 @@ function itemDropLine(item){
 // x +12); Vault raises vault 50->250 (5 tiers x +40). §9.7's base numbers are
 // the tier-0 floor, matching §15.3's "30 -> 90" / "50 -> 250" exactly at
 // S.hall.quarters/vault == 5.
-function invCapFor(/*c*/){ return 30 + 12 * (S.hall.quarters || 0); }
-function vaultCapFor(){ return 50 + 40 * (S.hall.vault || 0); }
+// §10.2 — the 120,000/65,000 Renown milestones stack ON TOP of the facility
+// tiers (additively, same rule as every other milestone), not in place of
+// them — a maxed Quarters/Vault plus both milestones is 90+12=102 / 250+40=290.
+function invCapFor(/*c*/){ return 30 + 12 * (S.hall.quarters || 0) + milestoneInvCapBonus(); }
+function vaultCapFor(){ return 50 + 40 * (S.hall.vault || 0) + milestoneVaultCapBonus(); }
 
 /* ==================================================================
    §9.7/§11 — auto-salvage filter (§16 Phase 11).
@@ -3206,6 +3304,21 @@ function shouldAutoSalvage(c, item){
   if (archiveTier >= 3 && salv.sellBelowEquipped){
     const eq = c.gear[item.slot];
     if (eq && item.power < eq.power) return true;
+  }
+  // Rule 4 (§10.2 — 170,000 Renown milestone, NOT an Archive tier bump: the
+  // Archive only goes to 3 tiers/3 rules, so this 4th rule is gated on its
+  // own S.renown read, milestoneSalvageExtraRule, same as every other
+  // system-unlock milestone). A broader version of Rule 3: instead of
+  // per-slot comparison against what's currently equipped IN THAT SLOT, this
+  // compares against the character's single BEST equipped item across all
+  // three slots — catches a weapon-slot drop that's weaker than an even
+  // stronger relic, which Rule 3 alone can't express.
+  if (milestoneSalvageExtraRule() && salv.sellBelowBestEquipped){
+    const equipped = ["weapon", "armor", "relic"].map(s => c.gear[s]).filter(Boolean);
+    if (equipped.length){
+      const bestPower = Math.max(...equipped.map(it => it.power));
+      if (item.power < bestPower) return true;
+    }
   }
   return false;
 }
@@ -3505,6 +3618,24 @@ function reviveGoldCostFor(c){
   const base = c.level * c.level * BAL.REVIVE_GOLD_MULT;
   return Math.round(c.cls === "necromancer" ? base * 0.5 : base);
 }
+// §13/§10.2 — Vardun's Forge crafting cost, level^2 x BAL.FORGE_GOLD_MULT,
+// discounted -20% by the 100,000 Renown milestone (milestoneForgeDiscountPct).
+// Single seam for forgeHtml's DISPLAYED price and A.craftItem's ACTUAL gold
+// deduction, same pattern as reviveGoldCostFor above — a discount wired to
+// only one of those two sites either lies about the price or charges the
+// wrong amount (the recurring cost-display trap in this file).
+function forgeCostFor(c){
+  const base = c.level * c.level * BAL.FORGE_GOLD_MULT;
+  return Math.round(base * (1 - milestoneForgeDiscountPct()));
+}
+// §13/§10.2 — The Mystic's consult cost, level^2 x BAL.MYSTIC_GOLD_MULT,
+// discounted -20% by the 200,000 Renown milestone (milestoneMysticDiscountPct).
+// Single seam for mysticHtml's DISPLAYED price and A.buyMysticBuff's ACTUAL
+// gold deduction — see forgeCostFor above.
+function mysticCostFor(c){
+  const base = c.level * c.level * BAL.MYSTIC_GOLD_MULT;
+  return Math.round(base * (1 - milestoneMysticDiscountPct()));
+}
 
 // §3.4 — retirement Renown grant: floor(level^1.8), see BAL.RETIRE_RENOWN_EXP.
 // §1 — the SAME formula grants both a voluntary retirement (A.confirmRetire)
@@ -3788,8 +3919,12 @@ const Engine = {
     const m = S.market;
     if (m.refreshAt && now < m.refreshAt) return false;
     m.stock = Engine.rollMarketStock();
-    let next = (m.refreshAt || now) + BAL.MARKET_REFRESH_MS;
-    while (next <= now) next += BAL.MARKET_REFRESH_MS;
+    // §10.2 — 80,000 Renown drops the interval 60min -> 45min
+    // (milestoneMarketRefreshMs, read here so live AND offline catch-up
+    // agree — same absolute-timestamp fast-forward as before).
+    const interval = milestoneMarketRefreshMs();
+    let next = (m.refreshAt || now) + interval;
+    while (next <= now) next += interval;
     m.refreshAt = next;
     return true;
   },
@@ -3802,8 +3937,10 @@ const Engine = {
     const tiers = ["normal"];
     if (ref.tierUnlocked.nightmare) tiers.push("nightmare");
     if (ref.tierUnlocked.inferno) tiers.push("inferno");
+    // §10.2 — 40,000 Renown adds a 7th stall (milestoneMarketStockBonus).
+    const size = BAL.MARKET_STOCK_SIZE + milestoneMarketStockBonus();
     const stock = [];
-    for (let i = 0; i < BAL.MARKET_STOCK_SIZE; i++){
+    for (let i = 0; i < size; i++){
       const difficulty = tiers[Math.floor(Math.random() * tiers.length)];
       // §13/§17 "Never sells Set or Unique" — Items.rollMarketQuality's key
       // list structurally excludes both (see that function's comment), so
@@ -3813,12 +3950,29 @@ const Engine = {
       // curve. Built directly via Items.build (Items.generate's own body,
       // minus the rollQuality call) since the quality roll comes from a
       // different table now.
-      const item = Items.build(ref.level, difficulty, Items.rollSlot(), Items.rollMarketQuality(ref.level));
+      let quality = Items.rollMarketQuality(ref.level);
+      // §10.2 — 375,000 Renown: the Market never stocks Common. REROLL
+      // rather than reweight the table, so the other three qualities keep
+      // exactly the relative proportions Items.rollMarketQuality already
+      // gives them (magic always carries nonzero weight, so this converges).
+      while (milestoneMarketNoCommon() && quality === "common") quality = Items.rollMarketQuality(ref.level);
+      const item = Items.build(ref.level, difficulty, Items.rollSlot(), quality);
       // §17 — rarity premium ON TOP of the existing power-driven sell value
       // (BAL.MARKET_RARITY_PREMIUM; see report for the measured runs-of-
       // income table this produces across progression).
       item.buyPrice = Math.round(Items.sellValue(item) * BAL.MARKET_BUY_MARKUP * BAL.MARKET_RARITY_PREMIUM[item.quality]);
       stock.push(item);
+    }
+    // §10.2 — 500,000 Renown: guarantee one Legendary or better. The Market
+    // structurally never carries Set/Unique (see Items.rollMarketQuality's
+    // comment above), so "or better" tops out at Legendary here. Only
+    // forces the LAST stall, and only if nothing already rolled Legendary
+    // on its own, so this never removes an organically-rolled second one.
+    if (milestoneMarketGuaranteedLegendary() && !stock.some(it => it.quality === "legendary")){
+      const difficulty = tiers[Math.floor(Math.random() * tiers.length)];
+      const item = Items.build(ref.level, difficulty, Items.rollSlot(), "legendary");
+      item.buyPrice = Math.round(Items.sellValue(item) * BAL.MARKET_BUY_MARKUP * BAL.MARKET_RARITY_PREMIUM[item.quality]);
+      stock[stock.length - 1] = item;
     }
     return stock;
   },
@@ -4029,9 +4183,12 @@ const Engine = {
     // actboss each have their own multiplier; actboss may add the
     // first-clear bonus below via resolveBossAttempt.
     if (info){
-      if (a.kind === "zone")     a.accrued.renown = BAL.RENOWN_ZONE_MULT * info.act.n;
-      else if (a.kind === "zoneboss") a.accrued.renown = BAL.RENOWN_ZONEBOSS_MULT * info.act.n;
-      else if (a.kind === "actboss")  a.accrued.renown = BAL.RENOWN_ACTBOSS_MULT * info.act.n;
+      // §10.2 — every grant runs through renownTierMultFor(c.difficulty); see
+      // that function's comment for why it can never be inlined here alone.
+      const tierMult = renownTierMultFor(c.difficulty);
+      if (a.kind === "zone")     a.accrued.renown = BAL.RENOWN_ZONE_MULT * info.act.n * tierMult;
+      else if (a.kind === "zoneboss") a.accrued.renown = BAL.RENOWN_ZONEBOSS_MULT * info.act.n * tierMult;
+      else if (a.kind === "actboss")  a.accrued.renown = BAL.RENOWN_ACTBOSS_MULT * info.act.n * tierMult;
     }
     // §8.2/§7 — boss relock + loop revert + unlock progression, on a WIN.
     // Must run before payout() so any first-clear renown bonus it adds is
@@ -4733,15 +4890,18 @@ function rewardEstimateFor(c, targetId){
   const rawGold = BAL.GOLD_RATE * Math.pow(rewardThreat, BAL.GOLD_SCALE) * rewardMult;
   const xp = rawXp * restedXpMultFor(c) * xpGainFor(c, atMs);
   const gold = rawGold * goldFindFor(c, atMs);
-  // §10.1 — renown is a lump sum on completion, not per-tick; same table
-  // Engine.completeRun uses.
+  // §10.1/§10.2 — renown is a lump sum on completion, not per-tick; same
+  // table Engine.completeRun uses, run through the SAME renownTierMultFor
+  // (see that function's comment — this is Trap 1: the estimate and the
+  // real payout must never read the tier multiplier from two places).
+  const renownTierMult = renownTierMultFor(c.difficulty);
   const renown = (info.kind === "zone" ? BAL.RENOWN_ZONE_MULT
-    : info.kind === "zoneboss" ? BAL.RENOWN_ZONEBOSS_MULT : BAL.RENOWN_ACTBOSS_MULT) * info.act.n;
+    : info.kind === "zoneboss" ? BAL.RENOWN_ZONEBOSS_MULT : BAL.RENOWN_ACTBOSS_MULT) * info.act.n * renownTierMult;
   // §10.1 — act-boss first clear (this difficulty, clan-wide) adds a bonus;
   // same S.actsCleared check resolveBossAttempt makes.
   let firstClearBonus = 0;
   if (info.kind === "actboss" && !(S.actsCleared[c.difficulty] || []).includes(info.act.n)){
-    firstClearBonus = BAL.RENOWN_ACTCLEAR_MULT * info.act.n;
+    firstClearBonus = BAL.RENOWN_ACTCLEAR_MULT * info.act.n * renownTierMult;
   }
   // §9c/§7.1 — expected drop count, same expectation applyTick's per-tick
   // Bernoulli resolves to on average.
@@ -5081,6 +5241,79 @@ function renderRetireModal(c){
 /* ==================================================================
    8. RENDER
    ================================================================== */
+
+/* ------------------------------------------------------------------
+   8a. ICON SYSTEM  (§17 UI polish — ported from Realmwalker's icon
+   builder, same owner, same pattern: a name -> path-fragment map plus
+   one wrapper function, never an inline one-off <svg>.)
+   --------------------------------------------------------------------
+   Hand-authored dark-fantasy glyphs on a 24x24 viewBox, fill:none,
+   stroke:currentColor. Deliberately NOT a hex fill anywhere in
+   ICON_ART: this file measures --crimson vs --crimson-text (and the
+   --q-* pair) precisely because a structural color and a readable-
+   text color are different things here (see that var's comment at
+   the top of <style>). An icon that inherits currentColor picks up
+   whichever of the two its surrounding heading already uses —
+   h2.sec/.ph.building read --crimson-text, h3.sub reads --parchment —
+   with zero re-auditing. Hardcoding a fill on any glyph would
+   silently reopen the contrast gap this file already closed once.
+
+   Access ONLY through icon(name, size); every call site below (tab
+   builder, h2.sec/h3.sub headings, .ph.building) goes through it so a
+   bad name degrades to "no icon" instead of broken markup. No
+   applyStaticIcons() companion — Demonwake, unlike Realmwalker, builds
+   essentially everything through template strings already passing
+   through renderTabs/renderPanel, so there is no static data-icon
+   markup left over that would need a boot-time sweep. */
+const ICON_ART = {
+  // --- Main tabs ---
+  quests: '<path d="M12 21 V4"/><path d="M12 6 H18 l2 2 -2 2 H12"/><path d="M12 13 H6 l-2 2 2 2 H12"/><path d="M9.5 21 h5"/>',
+  character: '<path d="M12 3 C8.5 3 6.5 6 6.5 9.5 C6.5 12 7.5 13.5 8.5 14.5 V16 C5.5 17 4 18.5 4 21 H20 C20 18.5 18.5 17 15.5 16 V14.5 C16.5 13.5 17.5 12 17.5 9.5 C17.5 6 15.5 3 12 3 Z"/><path d="M9.5 9.6 h1.3 M13.2 9.6 h1.3"/>',
+  gear: '<path d="M12 2.5 L13.6 5.5 V13.5 H10.4 V5.5 Z"/><path d="M7.5 14 H16.5"/><path d="M12 14 V19"/><path d="M10 19.5 H14"/>',
+  town: '<path d="M3 21 V11 h2 V9 h2 v2 h2 V8 h4 v3 h2 V9 h2 v2 h2 V21 Z"/><path d="M9.5 21 v-5 a2.5 2.5 0 0 1 5 0 v5"/><path d="M2.5 21 h19"/>',
+  hall: '<path d="M6 3 V21"/><path d="M6 4.5 H19 L15.8 9 L19 13.5 H6"/><path d="M11.5 6.4 l1.2 2.2 -1.2 2.2 -1.2 -2.2 Z"/><circle cx="6" cy="2.6" r="1"/>',
+
+  // --- Quests tab ---
+  queue: '<path d="M9 6.5 H20 M9 12 H20 M9 17.5 H20"/><circle cx="5" cy="6.5" r="1.4"/><circle cx="5" cy="12" r="1.4"/><circle cx="5" cy="17.5" r="1.4"/><path d="M5 7.9 V10.6 M5 13.4 V16.1"/>',
+
+  // --- Character tab ---
+  difficulty: '<path d="M4.5 20 V16 h3 V20 Z"/><path d="M10.5 20 V11 h3 V20 Z"/><path d="M16.5 20 V6 h3 V20 Z"/>',
+  power: '<path d="M7 20 v-6.5 a2 2 0 0 1 -2 -2 V8 a1.4 1.4 0 0 1 2.8 0 v2 M9.8 10.5 V5.4 a1.4 1.4 0 0 1 2.8 0 V10 M12.6 10 V6 a1.4 1.4 0 0 1 2.8 0 v4.2 M15.4 10.6 V8 a1.4 1.4 0 0 1 2.8 0 v5.5 a6.5 6.5 0 0 1 -1.6 4.3 L16 20 Z"/>',
+  combat: '<path d="M4.5 4.5 L16 18.5"/><path d="M19.5 4.5 L8 18.5"/><path d="M4.5 4.5 V7.5 M4.5 4.5 H7.5"/><path d="M19.5 4.5 V7.5 M19.5 4.5 H16.5"/><path d="M15.2 17 l1.8 1.8 M8.8 17 l-1.8 1.8"/>',
+  economy: '<path d="M4.5 6.5 a7.5 3 0 1 0 15 0 a7.5 3 0 1 0 -15 0"/><path d="M4.5 6.5 v4 a7.5 3 0 0 0 15 0 v-4"/><path d="M4.5 11 v4 a7.5 3 0 0 0 15 0 v-4"/>',
+  skilltree: '<circle cx="12" cy="4.5" r="2"/><circle cx="6" cy="13" r="2"/><circle cx="18" cy="13" r="2"/><circle cx="6" cy="20" r="1.6"/><circle cx="18" cy="20" r="1.6"/><path d="M12 6.5 L6.8 11.2 M12 6.5 L17.2 11.2 M6 15 V18.4 M18 15 V18.4"/>',
+
+  // --- Gear tab ---
+  equipment: '<path d="M7 5 L12 7 L17 5 v3.5 a10 10 0 0 1 -1.3 6.5 L12 20 L8.3 15 A10 10 0 0 1 7 8.5 Z"/><path d="M12 7 V20"/><path d="M8.4 11 a4.2 4.2 0 0 0 7.2 0"/>',
+  inventory: '<path d="M5 9 h14 l-1 11.5 H6 Z"/><path d="M8.5 9 V7 a3.5 3.5 0 0 1 7 0 v2"/><path d="M5 12.5 h14"/>',
+  salvage: '<path d="M12 2.5 L13.6 5 V9.5 L10.4 11 V5 Z"/><path d="M13.6 12.5 L10.4 14 V16 H13.6 Z"/><path d="M8 16.5 H16"/><path d="M12 16.5 V20"/>',
+
+  // --- Town tab (Emberhold's four buildings) ---
+  market: '<path d="M3.5 9 h17 v11.5 h-17 Z"/><path d="M3 5 h18 l1.6 4 h-21.2 Z"/><path d="M7.5 5 L6.6 9 M12 5 V9 M16.5 5 L17.4 9"/><path d="M9 20.5 v-5 h6 v5"/>',
+  mercy: '<path d="M12 20 C6.5 15.5 3.5 12 3.5 8.7 A4 4 0 0 1 12 6 A4 4 0 0 1 20.5 8.7 C20.5 12 17.5 15.5 12 20 Z"/><path d="M12 9.5 V15 M9.2 12.2 H14.8"/>',
+  forge: '<path d="M4 13.5 h13 a3.5 3.5 0 0 1 -3.5 3 H12 V18 h5 v2.5 H6.5 V18 h3 v-1.5 H7.5 A3.5 3.5 0 0 1 4 13.5 Z"/><path d="M14.5 3 l4.5 4.5 -1.8 1.8 -4.5 -4.5 Z"/><path d="M13.2 5.6 l-2.4 2.4"/>',
+  mystic: '<path d="M2.5 12 C5.5 7 8.8 4.8 12 4.8 C15.2 4.8 18.5 7 21.5 12 C18.5 17 15.2 19.2 12 19.2 C8.8 19.2 5.5 17 2.5 12 Z"/><circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="12" r="0.9"/>',
+
+  // --- Clan Hall tab ---
+  renown: '<path d="M12 20.5 C7 19 5 14 6 8"/><path d="M12 20.5 C17 19 19 14 18 8"/><path d="M6.3 10.4 q-2.3 -0.9 -3.3 0.4 M6.1 13.2 q-2.4 -0.3 -3.2 1.1 M7 16 q-2.2 0.2 -2.9 1.7"/><path d="M17.7 10.4 q2.3 -0.9 3.3 0.4 M17.9 13.2 q2.4 -0.3 3.2 1.1 M17 16 q2.2 0.2 2.9 1.7"/><path d="M12 5.4 l0.7 1.6 1.7 0.2 -1.3 1.2 0.4 1.7 -1.5 -0.9 -1.5 0.9 0.4 -1.7 -1.3 -1.2 1.7 -0.2 Z"/>',
+  facilities: '<path d="M4.5 20.5 V9 h2 V6.5 h2 V9 h7 V6.5 h2 V9 h2 v11.5 Z"/><path d="M4 20.5 h16"/><path d="M9.5 20.5 V15 h5 v5.5"/><path d="M12 6.5 V3 l3 1 -3 1"/>',
+  vault: '<path d="M3.5 10.5 a8.5 8.5 0 0 1 17 0 V19 a1.5 1.5 0 0 1 -1.5 1.5 H5 A1.5 1.5 0 0 1 3.5 19 Z"/><path d="M3.5 13.5 h17"/><path d="M10.5 13.5 h3 v3.5 h-3 Z"/>',
+  achievements: '<path d="M8 4 h8 v5 a4 4 0 0 1 -8 0 Z"/><path d="M8 5 H5.5 v2 a3 3 0 0 0 3 3"/><path d="M16 5 H18.5 v2 a3 3 0 0 1 -3 3"/><path d="M12 13 V16.5"/><path d="M8.5 20.5 h7 v-2 a2 2 0 0 0 -2 -2 h-3 a2 2 0 0 0 -2 2 Z"/>',
+  memorial: '<path d="M7 20.5 V9 a5 5 0 0 1 10 0 v11.5 Z"/><path d="M5 20.5 h14"/><path d="M12 7.5 V13.5 M9.6 10 H14.4"/>',
+};
+
+// Wrap an ICON_ART entry in a themed <svg>. Unknown name -> "" (never
+// broken markup) — callers below never special-case a miss, they just
+// concatenate whatever this returns.
+function icon(name, size){
+  const art = ICON_ART[name];
+  if (!art) return "";
+  const s = size || 16;
+  return '<svg class="icon" viewBox="0 0 24 24" width="' + s + '" height="' + s +
+    '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    art + '</svg>';
+}
+
 function activeChar(){ return S.characters[S.activeChar] || null; }
 
 function render(){
@@ -5389,7 +5622,7 @@ function contentName(id){
 
 function renderTabs(){
   document.getElementById("tabs").innerHTML = TABS.map(t =>
-    `<button class="tab ${S.ui.tab===t.id?"active":""}" onclick="A.selectTab('${t.id}')">${t.label}</button>`
+    `<button class="tab ${S.ui.tab===t.id?"active":""}" onclick="A.selectTab('${t.id}')">${icon(t.icon, 16)}${t.label}</button>`
   ).join("");
 }
 
@@ -5580,7 +5813,7 @@ function panelQuests(){
   // Collapsible like everything else on this tab, and defaults closed. The
   // body fn only runs when open, so the content dropdown doesn't walk all 15
   // zones + 20 bosses while collapsed.
-  if (c) out.push(collapsibleSection("questsOpen", "loopPolicy", "Quest Queue", () => loopPolicyPanel(c)));
+  if (c) out.push(collapsibleSection("questsOpen", "loopPolicy", `${icon("queue", 14)}Quest Queue`, () => loopPolicyPanel(c)));
 
   ACTS.forEach((act, actIdx) => {
     if (actIdx > 0) out.push(`<div class="act-divider"></div>`);   // 1c — visual separator between Acts
@@ -5949,15 +6182,15 @@ function panelChar(){
   const cls = CLASSES[c.cls];
   const b = Calc.powerBreakdown(c);
   return `
-    <h2 class="sec">${esc(c.name)} — ${cls.name}</h2>
+    <h2 class="sec">${icon("character", 17)}${esc(c.name)} — ${cls.name}</h2>
     <div class="stub" style="margin-bottom:14px">
       <span class="ph">Innate Passive &middot; ${cls.passive}</span>
       <div class="flavor" style="font-style:normal">${esc(cls.desc)}</div>
     </div>
     ${collapsibleSection("charOpen", "difficulty",
-      `Difficulty &middot; <span style="color:var(--gold)">${c.difficulty[0].toUpperCase()}${c.difficulty.slice(1)}</span>`,
+      `${icon("difficulty", 14)}Difficulty &middot; <span style="color:var(--gold)">${c.difficulty[0].toUpperCase()}${c.difficulty.slice(1)}</span>`,
       () => difficultyBodyHtml(c))}
-    <h3 class="sub">Power Breakdown</h3>
+    <h3 class="sub">${icon("power", 14)}Power Breakdown</h3>
     <div class="statline" style="margin-bottom:14px">
       <span>Base <b>${b.base}</b></span>
       <span>Gear <b>${fmt(b.gearFlat)}</b></span>
@@ -5965,7 +6198,7 @@ function panelChar(){
       <span>Tree <b>+${Math.round(b.treePct * 100)}%</b></span>
       <span>Total <b>${fmt(Calc.power(c))}</b></span>
     </div>
-    ${collapsibleSection("charOpen", "combat", "Combat &amp; Recovery (gear + passive + tree, combined)", () => `
+    ${collapsibleSection("charOpen", "combat", `${icon("combat", 14)}Combat &amp; Recovery (gear + passive + tree, combined)`, () => `
       <div class="statline" style="margin-bottom:14px">
         <span>Max HP <b>${fmt(Calc.maxHP(c))}</b></span>
         <span>Mitigation <b>${Math.round(mitigationFor(c) * 100)}%</b></span>
@@ -5979,7 +6212,7 @@ function panelChar(){
         <span>Rest Rate <b>${(restRateFor(c) * 100).toFixed(0)}%/hr</b></span>
         <span>Revive Cooldown <b>${fmtDur(reviveCooldownFor(c))}</b></span>
       </div>`)}
-    ${collapsibleSection("charOpen", "economy", "Economy &amp; Growth (gear + passive + tree, combined)", () => `
+    ${collapsibleSection("charOpen", "economy", `${icon("economy", 14)}Economy &amp; Growth (gear + passive + tree, combined)`, () => `
       <div class="statline" style="margin-bottom:14px">
         <span>Item Find <b>+${Math.round((itemFindFor(c) - (c.buffs.rested ? 1 + restedBuffFor(c) : 1)) * 100)}%</b></span>
         <span>Gold Find <b>+${Math.round((goldFindFor(c) - 1) * 100)}%</b></span>
@@ -5988,7 +6221,7 @@ function panelChar(){
         <span>Run Duration <b>-${Math.round((1 - runDurationMultFor(c)) * 100)}%</b></span>
       </div>`)}
     ${collapsibleSection("charOpen", "tree",
-      `Skill Tree <span style="background:var(--crimson);color:#fff;border-radius:var(--r-pill);
+      `${icon("skilltree", 17)}Skill Tree <span style="background:var(--crimson);color:#fff;border-radius:var(--r-pill);
         padding:2px 10px;font-size:12px;letter-spacing:.04em;text-transform:none;margin-left:6px">${c.skillPoints} point${c.skillPoints === 1 ? "" : "s"} available</span>`,
       () => `
       <div data-tree-branches style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">
@@ -6135,12 +6368,16 @@ function itemCard(c, it, mode){
    default closed (see collapsibleSection). */
 function salvageBodyHtml(c){
   const tier = S.hall.archive || 0;
-  const salv = c.salvage || {sellAtOrBelow:"off", sellBelowLevels:0, sellBelowEquipped:false};
+  const salv = c.salvage || {sellAtOrBelow:"off", sellBelowLevels:0, sellBelowEquipped:false, sellBelowBestEquipped:false};
   const qOpts = BAL.SALVAGE_QUALITY_OPTIONS.map(q =>
     `<option value="${q}" ${salv.sellAtOrBelow === q ? "selected" : ""}>${q === "off" ? "Off" : q[0].toUpperCase() + q.slice(1)}</option>`).join("");
   const lvlOpts = BAL.SALVAGE_LEVEL_OPTIONS.map(v =>
     `<option value="${v}" ${salv.sellBelowLevels === v ? "selected" : ""}>${v === 0 ? "Off" : v + "+ levels below"}</option>`).join("");
   const gateNote = (need) => tier < need ? `<span style="color:var(--crimson-text)"> (Archive tier ${need} required)</span>` : "";
+  // §10.2 — Rule 4's gate is a Renown milestone, not an Archive tier, so it
+  // gets its own read/label instead of reusing gateNote's "Archive tier N".
+  const renownGated = !milestoneSalvageExtraRule();
+  const renownGateNote = renownGated ? `<span style="color:var(--crimson-text)"> (170,000 Renown required)</span>` : "";
   return `<div class="stub">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
         <label style="display:block">
@@ -6156,6 +6393,13 @@ function salvageBodyHtml(c){
           <select onchange="A.setSalvageEquipped(this.value)" ${tier < 3 ? "disabled" : ""}>
             <option value="off" ${!salv.sellBelowEquipped ? "selected" : ""}>Off</option>
             <option value="on" ${salv.sellBelowEquipped ? "selected" : ""}>On</option>
+          </select>
+        </label>
+        <label style="display:block">
+          <div class="cap" style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--parchment-dim);margin-bottom:4px">Auto-sell items weaker than your best-equipped item${renownGateNote}</div>
+          <select onchange="A.setSalvageBestEquipped(this.value)" ${renownGated ? "disabled" : ""}>
+            <option value="off" ${!salv.sellBelowBestEquipped ? "selected" : ""}>Off</option>
+            <option value="on" ${salv.sellBelowBestEquipped ? "selected" : ""}>On</option>
           </select>
         </label>
       </div>
@@ -6179,16 +6423,16 @@ function panelGear(){
       </div>`
     : `<div class="flavor">Nothing carried.</div>`;
 
-  return `<h2 class="sec">Equipment</h2>
+  return `<h2 class="sec">${icon("equipment", 17)}Equipment</h2>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:20px">
       ${equipped}
     </div>
-    <h3 class="sub">Inventory (${c.inventory.length} / ${invCap})</h3>
+    <h3 class="sub">${icon("inventory", 14)}Inventory (${c.inventory.length} / ${invCap})</h3>
     ${inventoryToolsHtml(c)}
     ${invGrid}
     <div class="flavor" style="margin-top:14px">The clan vault (${S.vault.length} / ${vaultCap}) is in the
       Clan Hall tab — shared storage lives with the rest of the clan's holdings.</div>
-    ${collapsibleSection("gearOpen", "salvage", "Auto-Salvage Filter", () => salvageBodyHtml(c))}`;
+    ${collapsibleSection("gearOpen", "salvage", `${icon("salvage", 14)}Auto-Salvage Filter`, () => salvageBodyHtml(c))}`;
 }
 
 /* §15.3 — inventory tools, above the grid. Sort is a real reorder of
@@ -6220,21 +6464,52 @@ function inventoryToolsHtml(c){
    currently SELECTED character (gearDeltaFor needs a character in hand to
    compute Δ Power/Δ Max HP — disabled with no active character, same as
    the inventory button being disabled on an empty pack). Three more real
-   reorders (Quality/Slot/Item Level) cover the brief's other suggestions;
-   "grouping by slot" is Sort · Slot itself (clusters weapon/armor/relic
-   together) rather than a separate grouped-header layout, which would cost
-   more markup for the same practical result on a flat item-card grid.
+   reorders (Quality/Slot/Item Level) cover the brief's other suggestions.
    The slot FILTER (right-hand select) is view-only — never reorders or
    drops anything from S.vault, just hides non-matching cards from THIS
    render — persisted on S.ui.vaultFilterSlot so it survives a reload
    (same pattern as S.ui.questsOpen). Buttons wrap via flex-wrap; verified
-   at 375px (see report). */
+   at 375px (see report).
+
+   Clan Hall vault revamp (owner ask: "items from the same set should
+   appear next to each other and be easily reviewable") — a Grouped/Flat
+   VIEW toggle sits alongside the sort/filter controls, persisted on
+   S.ui.vaultView (see newState()'s comment), defaulting to Grouped.
+   Grouped and Flat share every sort/filter control below rather than each
+   getting their own — deliberately, so switching views mid-browse doesn't
+   reset what you were doing. How they interact with Grouped (see
+   panelHall/vaultGroupedHtml):
+     - Sort (S.vault reorder, real & persisted, unchanged from before this
+       change) still governs ordering WITHIN a group — each group's card
+       list is built by filtering the already-sorted S.vault, so e.g.
+       "Sort · Quality" leaves each set's/slot's cards quality-ordered with
+       zero extra sort logic in the grouped path. The one deliberate
+       exception: pieces inside a SET section always render in a fixed
+       weapon → armor → relic order (the brief's explicit ask, and a set
+       only ever has 3 pieces — a "sort" there has nothing meaningful to
+       reorder).
+     - The slot FILTER still hides non-matching CARDS exactly as in Flat —
+       but a set's completion badge/missing-slot text is computed from the
+       full, unfiltered S.vault, never from the filtered list. Filtering to
+       "Weapon" must not make a 2/3 set (whose 2nd piece is Armor) read as
+       "1/3" — that would fight the entire point of this view. A set
+       section itself only renders when at least one of its pieces SURVIVES
+       the filter (so filtering to "Weapon" hides armor-only-owned set
+       sections entirely, same spirit as Flat hiding their cards) — see
+       vaultGroupedHtml's comment for the full reasoning. */
 const VAULT_SLOT_ORDER = ["weapon", "armor", "relic"];
 function vaultToolsHtml(c, shownCount, totalCount){
   const filterSlot = S.ui.vaultFilterSlot || "all";
+  const view = S.ui.vaultView === "flat" ? "flat" : "grouped";
   const slotOpts = ["all", "weapon", "armor", "relic"].map(s =>
     `<option value="${s}" ${filterSlot === s ? "selected" : ""}>${s === "all" ? "All slots" : s[0].toUpperCase() + s.slice(1)}</option>`).join("");
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+    <span style="display:flex;gap:6px;align-items:center;border-right:1px solid var(--line);padding-right:8px;margin-right:2px">
+      <button class="btn ${view === "grouped" ? "primary" : ""}" onclick="A.setVaultView('grouped')" ${view === "grouped" ? "disabled" : ""}
+        title="Cluster items by set, then Uniques, then everything else by slot">Grouped</button>
+      <button class="btn ${view === "flat" ? "primary" : ""}" onclick="A.setVaultView('flat')" ${view === "flat" ? "disabled" : ""}
+        title="One flat grid, sorted/filtered as below">Flat</button>
+    </span>
     <button class="btn" onclick="A.sortVault('upgrade')" ${c && totalCount ? "" : "disabled"}
       title="${c ? "Reorder by Power gained if equipped on " + esc(c.name) + ", biggest upgrade first" : "Select a character first"}">Sort &middot; Upgrade</button>
     <button class="btn" onclick="A.sortVault('quality')" ${totalCount ? "" : "disabled"} title="Reorder by quality, best first">Sort &middot; Quality</button>
@@ -6245,6 +6520,112 @@ function vaultToolsHtml(c, shownCount, totalCount){
     </label>
     ${filterSlot !== "all" ? `<span style="font-size:12px;color:var(--parchment-dim);width:100%">Showing ${shownCount} of ${totalCount}</span>` : ""}
   </div>`;
+}
+/* Clan Hall vault revamp — read-only lookup of where else in the clan a
+   set's pieces currently live: equipped (c.gear[slot]) or carried
+   (c.inventory), scanned across the WHOLE roster, never S.vault itself
+   (those pieces already have cards under the section header — see
+   vaultSetGroupHtml). Never mutates a character; this only ever reads
+   c.gear/c.inventory. Returns every holder per slot (not just the first —
+   a clan can duplicate-own a slot, e.g. two characters each carrying an
+   Armor roll of the same set), so "I own all 3, split up" stays true even
+   for a clan sitting on spares. */
+function setHoldingsFor(setKey){
+  const out = {weapon: [], armor: [], relic: []};
+  for (const ch of S.characters){
+    for (const slot of VAULT_SLOT_ORDER){
+      const eq = ch.gear[slot];
+      if (eq && eq.quality === "set" && eq.setKey === setKey) out[slot].push({name: ch.name, where: "equipped"});
+    }
+    for (const it of ch.inventory){
+      if (it.quality === "set" && it.setKey === setKey) out[it.slot].push({name: ch.name, where: "in pack"});
+    }
+  }
+  return out;
+}
+function setHoldingsHtml(setKey){
+  const holdings = setHoldingsFor(setKey);
+  const lines = [];
+  for (const slot of VAULT_SLOT_ORDER){
+    for (const h of holdings[slot]){
+      lines.push(`${slot[0].toUpperCase() + slot.slice(1)} &middot; ${esc(h.name)} (${h.where})`);
+    }
+  }
+  if (!lines.length) return "";
+  return `<div style="font-size:11px;color:var(--parchment-dim);margin-bottom:8px">Also held outside the vault: ${lines.join(" &middot; ")}</div>`;
+}
+/* One Clan Hall vault section for a single set. `vaultShown` is the
+   slot-FILTERED list (see vaultToolsHtml's header comment) — used to decide
+   which cards actually paint here — but the completion badge/missing-slot
+   text below is deliberately computed from the full, unfiltered S.vault
+   (`fullPieces`) so a slot filter can never make a complete set LOOK
+   incomplete. Pieces render in a fixed weapon → armor → relic order (the
+   brief's explicit ask) rather than whatever S.vault's current sort left
+   them in — a set only ever has 3 pieces, one per slot, so there's nothing
+   for a sort mode to meaningfully reorder here. */
+function vaultSetGroupHtml(c, setKey, vaultShown){
+  const setDef = SETS[setKey];
+  const fullPieces = {};
+  for (const slot of VAULT_SLOT_ORDER){
+    fullPieces[slot] = S.vault.find(it => it.quality === "set" && it.setKey === setKey && it.slot === slot) || null;
+  }
+  const n = VAULT_SLOT_ORDER.filter(slot => fullPieces[slot]).length;
+  const missing = VAULT_SLOT_ORDER.filter(slot => !fullPieces[slot]);
+  const shownPieces = VAULT_SLOT_ORDER
+    .map(slot => vaultShown.find(it => it.quality === "set" && it.setKey === setKey && it.slot === slot))
+    .filter(Boolean);
+  return `<div class="stub" style="margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 8px;margin-bottom:6px">
+      <span class="ph" style="margin-bottom:0">${esc(setDef.name)}</span>
+      <span style="font-size:12px;color:${n >= 3 ? "var(--upgrade)" : "var(--parchment-dim)"}">
+        ${n} / 3 in vault${missing.length ? ` &middot; missing ${missing.map(s => s[0].toUpperCase() + s.slice(1)).join(", ")}` : ""}
+      </span>
+    </div>
+    <div style="font-size:12px;color:var(--parchment);margin-bottom:2px">2pc: ${esc(setDef.bonus2)}</div>
+    <div style="font-size:12px;color:var(--parchment);margin-bottom:6px">3pc: ${esc(setDef.bonus3)}</div>
+    <div class="flavor" style="font-size:12px;margin-bottom:8px">${esc(setDef.flavor)}</div>
+    ${setHoldingsHtml(setKey)}
+    ${shownPieces.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        ${shownPieces.map(it => itemCard(c, it, "vault")).join("")}
+      </div>` : ""}
+  </div>`;
+}
+/* Clan Hall vault revamp — top-level Grouped-view assembly: Sets (one
+   section per set with >=1 piece surviving the slot filter — see
+   vaultSetGroupHtml), then Uniques (flat, no slot sub-grouping — a clan
+   rarely holds more than one or two at once, so splitting further is empty
+   ceremony), then everything else grouped by slot per the brief. `vaultShown`
+   is already the slot-filtered list panelHall/vaultToolsHtml share with Flat
+   view, so filtering behaves identically here — see vaultToolsHtml's header
+   comment for the full sort/filter-vs-Grouped rationale. */
+function vaultGroupedHtml(c, vaultShown){
+  const sections = [];
+  for (const setKey in SETS){
+    if (vaultShown.some(it => it.quality === "set" && it.setKey === setKey)){
+      sections.push(vaultSetGroupHtml(c, setKey, vaultShown));
+    }
+  }
+  const uniques = vaultShown.filter(it => it.quality === "unique");
+  if (uniques.length){
+    sections.push(`<div style="margin-bottom:14px">
+      <h3 class="sub" style="margin:0 0 8px">Uniques</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        ${uniques.map(it => itemCard(c, it, "vault")).join("")}
+      </div>
+    </div>`);
+  }
+  const rest = vaultShown.filter(it => it.quality !== "set" && it.quality !== "unique");
+  for (const slot of VAULT_SLOT_ORDER){
+    const pieces = rest.filter(it => it.slot === slot);
+    if (!pieces.length) continue;
+    sections.push(`<div style="margin-bottom:14px">
+      <h3 class="sub" style="margin:0 0 8px">${slot[0].toUpperCase() + slot.slice(1)}</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+        ${pieces.map(it => itemCard(c, it, "vault")).join("")}
+      </div>
+    </div>`);
+  }
+  return sections.join("");
 }
 function renderSellAllModal(c){
   const el = document.getElementById("sellAllModalBody");
@@ -6311,8 +6692,10 @@ function cinderMarketHtml(){
     ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:10px">${S.market.stock.map(marketItemCardHtml).join("")}</div>`
     : `<div class="flavor" style="margin-top:10px">Empty stalls. Nobody's come back with anything to sell yet.</div>`;
   return `<div class="stub" style="margin-bottom:16px">
-    <span class="ph">The Cinder Market</span>
-    <div class="flavor" style="font-style:normal">What the road gives up, Emberhold sells back. Six pieces, turned over by the hour.</div>
+    <span class="ph building">${icon("market", 16)}The Cinder Market</span>
+    <div class="flavor" style="font-style:normal">What the road gives up, Emberhold sells back.
+      ${BAL.MARKET_STOCK_SIZE + milestoneMarketStockBonus()} pieces, turned over
+      ${milestoneMarketRefreshMs() < BAL.MARKET_REFRESH_MS ? "every 45 minutes" : "by the hour"}.</div>
     <div style="font-size:12px;color:var(--parchment-dim);margin-top:6px">Refreshes in <span id="marketRefreshTxt">${fmtDur(msLeft)}</span></div>
     ${stockHtml}
   </div>`;
@@ -6321,7 +6704,7 @@ function cinderMarketHtml(){
 // Undying -50% already applied by reviveGoldCostFor). A.payFullHeal/
 // A.payRevive are unchanged from Phase 3 — only their home moved here.
 function mercyHouseHtml(c){
-  if (!c) return `<div class="stub" style="margin-bottom:16px"><span class="ph">The Mercy House</span>
+  if (!c) return `<div class="stub" style="margin-bottom:16px"><span class="ph building">${icon("mercy", 16)}The Mercy House</span>
     <div class="flavor" style="font-style:normal">No character selected.</div></div>`;
   const maxHP = Calc.maxHP(c);
   const healCost = c.level * c.level * BAL.FULLHEAL_GOLD_MULT;
@@ -6330,7 +6713,7 @@ function mercyHouseHtml(c){
   const reviveEligible = c.activity.type === "dead";
   const healAfford = S.gold >= healCost, reviveAfford = S.gold >= reviveCost;
   return `<div class="stub" style="margin-bottom:16px">
-    <span class="ph">The Mercy House</span>
+    <span class="ph building">${icon("mercy", 16)}The Mercy House</span>
     <div class="flavor" style="font-style:normal">The Healer keeps count of who comes back and who has to be paid for.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
       <button class="btn ${reviveEligible && reviveAfford ? "primary" : ""}" onclick="A.payRevive()" ${reviveEligible && reviveAfford ? "" : "disabled"}
@@ -6342,15 +6725,16 @@ function mercyHouseHtml(c){
     </div>
   </div>`;
 }
-// §13 — craft one item for a chosen slot, cost level^2 x 25, quality per
-// BAL.FORGE_QUALITY (Items.rollForgeQuality, Set/Unique excluded, Phase 11
-// one-line enable). Item level = the crafting character's own level (no
-// zone context to draw one from); difficulty = the character's CURRENT
-// tier, so a Nightmare/Inferno character crafts Ancient/Mythic gear.
+// §13/§10.2 — craft one item for a chosen slot, cost level^2 x 25 (forgeCostFor,
+// -20% at the 100,000 Renown milestone), quality per BAL.FORGE_QUALITY
+// (Items.rollForgeQuality, Set/Unique excluded, Phase 11 one-line enable).
+// Item level = the crafting character's own level (no zone context to draw
+// one from); difficulty = the character's CURRENT tier, so a Nightmare/
+// Inferno character crafts Ancient/Mythic gear.
 function forgeHtml(c){
-  if (!c) return `<div class="stub" style="margin-bottom:16px"><span class="ph">Vardun's Forge</span>
+  if (!c) return `<div class="stub" style="margin-bottom:16px"><span class="ph building">${icon("forge", 16)}Vardun's Forge</span>
     <div class="flavor" style="font-style:normal">No character selected.</div></div>`;
-  const cost = c.level * c.level * BAL.FORGE_GOLD_MULT;
+  const cost = forgeCostFor(c);
   const afford = S.gold >= cost;
   const roomy = c.inventory.length < invCapFor(c);
   const slotBtns = ["weapon", "armor", "relic"].map(s =>
@@ -6359,36 +6743,38 @@ function forgeHtml(c){
   const disabled = !afford || !roomy;
   const title = !roomy ? "Inventory full" : !afford ? "Not enough gold" : "Craft";
   return `<div class="stub" style="margin-bottom:16px">
-    <span class="ph">Vardun's Forge</span>
+    <span class="ph building">${icon("forge", 16)}Vardun's Forge</span>
     <div class="flavor" style="font-style:normal">Vardun doesn't ask what it's for. He never has.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${slotBtns}</div>
     <button class="btn ${disabled ? "" : "primary"}" style="margin-top:10px" onclick="A.craftItem()" ${disabled ? "disabled" : ""} title="${title}">
       Craft ${townUi.forgeSlot} &middot; ${fmt(cost)}g</button>
   </div>`;
 }
-// §13 — timed random buff, 2h duration (BAL.MYSTIC_DURATION_MS, absolute
-// timestamp per §2.1), cost level^2 x 15. c.buffs.mystic.expiresAt is the
-// single source of truth for whether it's active (mysticActive) — no
-// separate "consumed" bookkeeping needed.
+// §13/§10.2 — timed random buff, 2h base duration (BAL.MYSTIC_DURATION_MS,
+// absolute timestamp per §2.1; 3h at the 275,000 Renown milestone, see
+// milestoneMysticDurationMs), cost level^2 x 15 (mysticCostFor, -20% at
+// 200,000). c.buffs.mystic.expiresAt is the single source of truth for
+// whether it's active (mysticActive) — no separate "consumed" bookkeeping
+// needed.
 function mysticHtml(c){
-  if (!c) return `<div class="stub"><span class="ph">The Mystic &middot; Sable, the Nine-Eyed</span>
+  if (!c) return `<div class="stub"><span class="ph building">${icon("mystic", 16)}The Mystic &middot; Sable, the Nine-Eyed</span>
     <div class="flavor" style="font-style:normal">No character selected.</div></div>`;
-  const cost = c.level * c.level * BAL.MYSTIC_GOLD_MULT;
+  const cost = mysticCostFor(c);
   const afford = S.gold >= cost;
   const statusHtml = mysticActive(c)
     ? `<div style="font-size:12px;color:var(--gold);margin-top:6px">${esc(BAL.MYSTIC_BUFFS[c.buffs.mystic.key].label)} &middot; <span id="mysticRemainingTxt">${fmtDur(c.buffs.mystic.expiresAt - Date.now())}</span> remaining</div>`
     : "";
   return `<div class="stub">
-    <span class="ph">The Mystic &middot; Sable, the Nine-Eyed</span>
+    <span class="ph building">${icon("mystic", 16)}The Mystic &middot; Sable, the Nine-Eyed</span>
     <div class="flavor" style="font-style:normal">She sees nine things and tells you one of them. Never the one you asked for.</div>
     ${statusHtml}
     <button class="btn ${afford ? "primary" : ""}" style="margin-top:10px" onclick="A.buyMysticBuff()" ${afford ? "" : "disabled"}
-      title="${afford ? "Roll one of six 2-hour buffs" : "Not enough gold"}">Consult Sable &middot; ${fmt(cost)}g</button>
+      title="${afford ? `Roll one of six ${fmtDur(milestoneMysticDurationMs())} buffs` : "Not enough gold"}">Consult Sable &middot; ${fmt(cost)}g</button>
   </div>`;
 }
 function panelTown(){
   const c = activeChar();
-  return `<h2 class="sec">Emberhold</h2>
+  return `<h2 class="sec">${icon("town", 17)}Emberhold</h2>
     <div class="flavor" style="margin-bottom:14px">The last town in Vaelmoor. Walls of black stone,
       fires that are never allowed to go out. Named for the practice of keeping a coal
       from the old capital burning.</div>
@@ -6595,16 +6981,24 @@ function panelHall(){
   // order here with no extra work.
   const vaultFilterSlot = S.ui.vaultFilterSlot || "all";
   const vaultShown = vaultFilterSlot === "all" ? S.vault : S.vault.filter(it => it.slot === vaultFilterSlot);
+  // Clan Hall vault revamp — Grouped is the default (owner ask); Flat is
+  // byte-for-byte the pre-revamp single grid (same vaultShown map/join as
+  // before this change, untouched). Both share the same two graceful empty
+  // states below — an empty vault, or a filter that leaves nothing shown —
+  // so Grouped never needs its own "nothing here" copy.
+  const vaultView = S.ui.vaultView === "flat" ? "flat" : "grouped";
   const vaultGrid = S.vault.length
     ? (vaultShown.length
-        ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
-            ${vaultShown.map(it => itemCard(c, it, "vault")).join("")}
-          </div>`
+        ? (vaultView === "flat"
+            ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+                ${vaultShown.map(it => itemCard(c, it, "vault")).join("")}
+              </div>`
+            : vaultGroupedHtml(c, vaultShown))
         : `<div class="flavor">No ${esc(vaultFilterSlot)} items in the vault.</div>`)
     : `<div class="flavor">Empty. The clan keeps nothing in reserve.</div>`;
   const doneCount = ACHIEVEMENTS.filter(a => S.achievements[a.id]).length;
 
-  return `<h2 class="sec">Clan Hall</h2>
+  return `<h2 class="sec">${icon("hall", 17)}Clan Hall</h2>
     <div class="statline" style="margin-bottom:14px">
       <span class="gold">Coffers <b>${fmt(S.gold)}</b></span>
       <span>Renown <b>${fmt(S.renown)}</b></span>
@@ -6614,28 +7008,28 @@ function panelHall(){
     </div>
     ${retirementNoticeHtml()}
 
-    <h3 class="sub" style="margin-top:0">Renown</h3>
+    <h3 class="sub" style="margin-top:0">${icon("renown", 14)}Renown</h3>
     ${milestoneProgressHtml()}
     <div class="stub" style="margin-top:10px;max-height:260px;overflow-y:auto">${milestoneListHtml()}</div>
 
-    <h3 class="sub">Facilities</h3>
+    <h3 class="sub">${icon("facilities", 14)}Facilities</h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-bottom:8px">
       ${Object.keys(FACILITIES).map(facilityCardHtml).join("")}
     </div>
 
-    <h3 class="sub">Vault — clan-owned (${S.vault.length} / ${vaultCap})</h3>
+    <h3 class="sub">${icon("vault", 14)}Vault — clan-owned (${S.vault.length} / ${vaultCap})</h3>
     <div class="flavor" style="margin-bottom:8px">Shared across the whole clan. Any character can take from it.
       A character's own carried inventory is ${invCap} slots, in the Gear tab.</div>
     ${S.vault.length ? vaultToolsHtml(c, vaultShown.length, S.vault.length) : ""}
     ${vaultGrid}
 
-    <h3 class="sub">Achievements <span style="color:var(--parchment-dim);font-size:11px">(${doneCount} / ${ACHIEVEMENTS.length})</span></h3>
+    <h3 class="sub">${icon("achievements", 14)}Achievements <span style="color:var(--parchment-dim);font-size:11px">(${doneCount} / ${ACHIEVEMENTS.length})</span></h3>
     <div style="max-height:420px;overflow-y:auto;padding-right:4px">
       ${ACHIEVEMENTS.map(achievementRowHtml).join("")}
     </div>
 
     ${collapsibleSection("hallOpen", "memorial",
-      `Memorial <span style="color:var(--parchment-dim);font-size:11px">(${fmt(S.memorial.length)})</span>`,
+      `${icon("memorial", 14)}Memorial <span style="color:var(--parchment-dim);font-size:11px">(${fmt(S.memorial.length)})</span>`,
       () => `<div class="flavor" style="margin-bottom:8px">Emberhold stands. Nobody cheers for it. This is the count of who came back, and who didn't.</div>${memorialSectionHtml()}`)}`;
 }
 
@@ -6939,6 +7333,14 @@ const A = {
     if (!c || (S.hall.archive || 0) < 3) return;
     mutate(() => { c.salvage.sellBelowEquipped = v === "on"; });
   },
+  // §10.2 — Rule 4, gated on the 170,000 Renown milestone (not an Archive
+  // tier — see shouldAutoSalvage's Rule 4 comment), re-validated server-side
+  // same as every other salvage setter above.
+  setSalvageBestEquipped(v){
+    const c = activeChar();
+    if (!c || !milestoneSalvageExtraRule()) return;
+    mutate(() => { c.salvage.sellBelowBestEquipped = v === "on"; });
+  },
 
   /* §5/§15.3 — Skill tree allocation. nodeIdx 0-3 are ranked (10 ranks,
      gated by BAL.TREE_TIER_REQ[nodeIdx] points already spent in the SAME
@@ -7200,6 +7602,12 @@ const A = {
   setVaultFilterSlot(slot){
     mutate(() => { S.ui.vaultFilterSlot = slot; });
   },
+  // Clan Hall vault revamp — Grouped/Flat toggle, persisted on S.ui.vaultView
+  // (see newState()'s comment). View-only, same as setVaultFilterSlot right
+  // above — never touches S.vault itself, never re-sorts it.
+  setVaultView(view){
+    mutate(() => { S.ui.vaultView = view === "flat" ? "flat" : "grouped"; });
+  },
 
   openSellAll(){
     const c = activeChar();
@@ -7312,7 +7720,7 @@ const A = {
   craftItem(){
     const c = activeChar();
     if (!c) return;
-    const cost = c.level * c.level * BAL.FORGE_GOLD_MULT;   // §13
+    const cost = forgeCostFor(c);   // §13/§10.2
     if (S.gold < cost) return;
     if (c.inventory.length >= invCapFor(c)) return;
     mutate(() => {
@@ -7333,14 +7741,14 @@ const A = {
   buyMysticBuff(){
     const c = activeChar();
     if (!c) return;
-    const cost = c.level * c.level * BAL.MYSTIC_GOLD_MULT;   // §13
+    const cost = mysticCostFor(c);   // §13/§10.2
     if (S.gold < cost) return;
     mutate(() => {
       S.gold -= cost;
       const keys = Object.keys(BAL.MYSTIC_BUFFS);
       const key = keys[Math.floor(Math.random() * keys.length)];
-      c.buffs.mystic = {key, expiresAt: Date.now() + BAL.MYSTIC_DURATION_MS};   // §2.1 — absolute timestamp
-      chronicle(c, c.activity.ticksDone, `Sable rolls the bones. ${BAL.MYSTIC_BUFFS[key].label}, for two hours.`, "sys");
+      c.buffs.mystic = {key, expiresAt: Date.now() + milestoneMysticDurationMs()};   // §2.1/§10.2 — absolute timestamp
+      chronicle(c, c.activity.ticksDone, `Sable rolls the bones. ${BAL.MYSTIC_BUFFS[key].label}, for ${fmtDur(milestoneMysticDurationMs())}.`, "sys");
     });
   },
 
@@ -7500,6 +7908,12 @@ window.DW = {
   milestoneGoldFindPct, milestoneXpGainPct, milestoneItemFindPct,
   milestoneUniqueChancePct, milestoneReviveCooldownMs, milestoneRunDurationPct,
   restedBuffFor,
+  // §10.2 ladder-extension verification seams
+  renownTierMultFor, forgeCostFor, mysticCostFor, rewardEstimateFor,
+  milestoneMarketStockBonus, milestoneVaultCapBonus, milestoneMarketRefreshMs,
+  milestoneForgeDiscountPct, milestoneInvCapBonus, milestoneSalvageExtraRule,
+  milestoneMysticDiscountPct, milestoneMysticDurationMs, milestoneMarketNoCommon,
+  milestoneMarketGuaranteedLegendary,
   get achCheckEnabled(){ return ACH_CHECK_ENABLED; },
   set achCheckEnabled(v){ ACH_CHECK_ENABLED = v; },
   get digestAchievements(){ return digestAchievements; },
