@@ -6565,26 +6565,41 @@ function setHoldingsHtml(setKey){
    which cards actually paint here — but the completion badge/missing-slot
    text below is deliberately computed from the full, unfiltered S.vault
    (`fullPieces`) so a slot filter can never make a complete set LOOK
-   incomplete. Pieces render in a fixed weapon → armor → relic order (the
-   brief's explicit ask) rather than whatever S.vault's current sort left
-   them in — a set only ever has 3 pieces, one per slot, so there's nothing
-   for a sort mode to meaningfully reorder here. */
+   incomplete. Pieces render grouped by slot in a fixed weapon → armor →
+   relic order (the brief's explicit ask) rather than whatever S.vault's
+   current sort left them in.
+
+   A set has three SLOTS but the vault can hold any number of COPIES of each
+   — duplicate drops are never auto-salvaged (Set quality is protected) and
+   retirement dumps a whole loadout in at once, so spares accumulate as a
+   matter of course. Both facts have to coexist:
+     - the completion badge counts distinct SLOTS FILLED, so three spare
+       weapons and no armor still reads "1 / 3 · missing Armor, Relic"
+       rather than a nonsensical "3 / 3";
+     - the card list renders EVERY copy. An earlier version used .find()
+       per slot for both, which silently hid every duplicate — the vault
+       held them, Flat view showed them, and Grouped (the DEFAULT view)
+       did not, leaving items you owned unreachable without switching
+       views. Slot-major ordering keeps copies of the same piece adjacent. */
 function vaultSetGroupHtml(c, setKey, vaultShown){
   const setDef = SETS[setKey];
+  const isPiece = (it, slot) => it.quality === "set" && it.setKey === setKey && it.slot === slot;
   const fullPieces = {};
   for (const slot of VAULT_SLOT_ORDER){
-    fullPieces[slot] = S.vault.find(it => it.quality === "set" && it.setKey === setKey && it.slot === slot) || null;
+    fullPieces[slot] = S.vault.filter(it => isPiece(it, slot));
   }
-  const n = VAULT_SLOT_ORDER.filter(slot => fullPieces[slot]).length;
-  const missing = VAULT_SLOT_ORDER.filter(slot => !fullPieces[slot]);
+  const n = VAULT_SLOT_ORDER.filter(slot => fullPieces[slot].length).length;
+  const missing = VAULT_SLOT_ORDER.filter(slot => !fullPieces[slot].length);
+  // spares = copies beyond the first in any slot; surfaced so a player can
+  // see at a glance that a fat section is duplicates, not progress.
+  const spares = VAULT_SLOT_ORDER.reduce((t, slot) => t + Math.max(0, fullPieces[slot].length - 1), 0);
   const shownPieces = VAULT_SLOT_ORDER
-    .map(slot => vaultShown.find(it => it.quality === "set" && it.setKey === setKey && it.slot === slot))
-    .filter(Boolean);
+    .reduce((acc, slot) => acc.concat(vaultShown.filter(it => isPiece(it, slot))), []);
   return `<div class="stub" style="margin-bottom:14px">
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 8px;margin-bottom:6px">
       <span class="ph" style="margin-bottom:0">${esc(setDef.name)}</span>
       <span style="font-size:12px;color:${n >= 3 ? "var(--upgrade)" : "var(--parchment-dim)"}">
-        ${n} / 3 in vault${missing.length ? ` &middot; missing ${missing.map(s => s[0].toUpperCase() + s.slice(1)).join(", ")}` : ""}
+        ${n} / 3 in vault${missing.length ? ` &middot; missing ${missing.map(s => s[0].toUpperCase() + s.slice(1)).join(", ")}` : ""}${spares ? ` &middot; ${spares} spare` : ""}
       </span>
     </div>
     <div style="font-size:12px;color:var(--parchment);margin-bottom:2px">2pc: ${esc(setDef.bonus2)}</div>
