@@ -2374,6 +2374,12 @@ function newState(){
       // predates this key simply has no `vault` entry, and sectionOpen()
       // reads a missing key as closed — the intended default either way.
       hallOpen: {memorial:false, vault:false},
+      // Collapsible sections INSIDE the grouped vault, keyed by "setGear",
+      // "uniques", and one entry per SETS key. Left empty on purpose: every
+      // level defaults closed (owner's ask), and sectionOpen() reads a
+      // missing key as closed, so an empty object is the complete default —
+      // no per-set enumeration to keep in sync as sets are added.
+      vaultOpen: {},
       // item 2 — vault slot filter (Clan Hall). "all" shows everything;
       // otherwise one of "weapon"/"armor"/"relic". View-only — see
       // vaultToolsHtml/A.setVaultFilterSlot. A pre-Phase-13 save has no
@@ -6569,6 +6575,9 @@ function setHoldingsHtml(setKey){
    relic order (the brief's explicit ask) rather than whatever S.vault's
    current sort left them in.
 
+   The whole section is collapsible (S.ui.vaultOpen[setKey]) and defaults
+   closed, nested inside the "Set Gear" parent — see vaultGroupedHtml.
+
    A set has three SLOTS but the vault can hold any number of COPIES of each
    — duplicate drops are never auto-salvaged (Set quality is protected) and
    retirement dumps a whole loadout in at once, so spares accumulate as a
@@ -6595,20 +6604,22 @@ function vaultSetGroupHtml(c, setKey, vaultShown){
   const spares = VAULT_SLOT_ORDER.reduce((t, slot) => t + Math.max(0, fullPieces[slot].length - 1), 0);
   const shownPieces = VAULT_SLOT_ORDER
     .reduce((acc, slot) => acc.concat(vaultShown.filter(it => isPiece(it, slot))), []);
-  return `<div class="stub" style="margin-bottom:14px">
-    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 8px;margin-bottom:6px">
-      <span class="ph" style="margin-bottom:0">${esc(setDef.name)}</span>
-      <span style="font-size:12px;color:${n >= 3 ? "var(--upgrade)" : "var(--parchment-dim)"}">
-        ${n} / 3 in vault${missing.length ? ` &middot; missing ${missing.map(s => s[0].toUpperCase() + s.slice(1)).join(", ")}` : ""}${spares ? ` &middot; ${spares} spare` : ""}
-      </span>
-    </div>
-    <div style="font-size:12px;color:var(--parchment);margin-bottom:2px">2pc: ${esc(setDef.bonus2)}</div>
-    <div style="font-size:12px;color:var(--parchment);margin-bottom:6px">3pc: ${esc(setDef.bonus3)}</div>
-    <div class="flavor" style="font-size:12px;margin-bottom:8px">${esc(setDef.flavor)}</div>
-    ${setHoldingsHtml(setKey)}
-    ${shownPieces.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
-        ${shownPieces.map(it => itemCard(c, it, "vault")).join("")}
-      </div>` : ""}
+  // The completion badge rides INSIDE the collapsible header rather than
+  // under it — collapsed is the default state, so the one line that stays
+  // visible has to carry the whole answer to "am I close on this set?".
+  const badge = `<span style="font-size:12px;font-weight:400;color:${n >= 3 ? "var(--upgrade)" : "var(--parchment-dim)"}">${
+    n} / 3${missing.length ? ` &middot; missing ${missing.map(s => s[0].toUpperCase() + s.slice(1)).join(", ")}` : ""}${
+    spares ? ` &middot; ${spares} spare` : ""}</span>`;
+  return `<div class="stub" style="margin-bottom:10px">
+    ${collapsibleSection("vaultOpen", setKey, `${esc(setDef.name)} ${badge}`, () => `
+      <div style="font-size:12px;color:var(--parchment);margin-bottom:2px">2pc: ${esc(setDef.bonus2)}</div>
+      <div style="font-size:12px;color:var(--parchment);margin-bottom:6px">3pc: ${esc(setDef.bonus3)}</div>
+      <div class="flavor" style="font-size:12px;margin-bottom:8px">${esc(setDef.flavor)}</div>
+      ${setHoldingsHtml(setKey)}
+      ${shownPieces.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+          ${shownPieces.map(it => itemCard(c, it, "vault")).join("")}
+        </div>` : ""}`,
+      "margin-top:0;margin-bottom:0")}
   </div>`;
 }
 /* Clan Hall vault revamp — top-level Grouped-view assembly: Sets (one
@@ -6621,30 +6632,44 @@ function vaultSetGroupHtml(c, setKey, vaultShown){
    comment for the full sort/filter-vs-Grouped rationale. */
 function vaultGroupedHtml(c, vaultShown){
   const sections = [];
-  for (const setKey in SETS){
-    if (vaultShown.some(it => it.quality === "set" && it.setKey === setKey)){
-      sections.push(vaultSetGroupHtml(c, setKey, vaultShown));
-    }
+  const dim = txt => `<span style="color:var(--parchment-dim);font-size:11px;font-weight:400">${txt}</span>`;
+  // Set Gear is a two-level collapsible: one parent over the whole category
+  // (owner's ask — it should read like Uniques does), and one per set nested
+  // inside it. Every level defaults CLOSED via sectionOpen()'s missing-key
+  // rule, so a vault deep into a collection opens as a short list of set
+  // names with their completion badges rather than pages of cards.
+  const setKeys = Object.keys(SETS).filter(k =>
+    vaultShown.some(it => it.quality === "set" && it.setKey === k));
+  if (setKeys.length){
+    const setItems = vaultShown.filter(it => it.quality === "set").length;
+    sections.push(collapsibleSection("vaultOpen", "setGear",
+      `Set Gear ${dim(`(${setItems} item${setItems === 1 ? "" : "s"} &middot; ${setKeys.length} set${setKeys.length === 1 ? "" : "s"})`)}`,
+      () => setKeys.map(k => vaultSetGroupHtml(c, k, vaultShown)).join(""),
+      "margin-top:0"));
   }
   const uniques = vaultShown.filter(it => it.quality === "unique");
   if (uniques.length){
-    sections.push(`<div style="margin-bottom:14px">
-      <h3 class="sub" style="margin:0 0 8px">Uniques</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+    sections.push(collapsibleSection("vaultOpen", "uniques",
+      `Uniques ${dim(`(${uniques.length})`)}`,
+      () => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:14px">
         ${uniques.map(it => itemCard(c, it, "vault")).join("")}
-      </div>
-    </div>`);
+      </div>`));
   }
+  // Ordinary gear, by slot. Collapsible and closed on the same terms as
+  // Set Gear/Uniques above — with those two collapsing, leaving these three
+  // permanently open would make them the odd ones out, and they are the
+  // bulkiest sections in a working vault. Keys are "slot:weapon" etc. rather
+  // than the bare slot name, so they can never collide with a SETS key in
+  // the shared S.ui.vaultOpen namespace.
   const rest = vaultShown.filter(it => it.quality !== "set" && it.quality !== "unique");
   for (const slot of VAULT_SLOT_ORDER){
     const pieces = rest.filter(it => it.slot === slot);
     if (!pieces.length) continue;
-    sections.push(`<div style="margin-bottom:14px">
-      <h3 class="sub" style="margin:0 0 8px">${slot[0].toUpperCase() + slot.slice(1)}</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+    sections.push(collapsibleSection("vaultOpen", `slot:${slot}`,
+      `${slot[0].toUpperCase() + slot.slice(1)} ${dim(`(${pieces.length})`)}`,
+      () => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:14px">
         ${pieces.map(it => itemCard(c, it, "vault")).join("")}
-      </div>
-    </div>`);
+      </div>`));
   }
   return sections.join("");
 }
